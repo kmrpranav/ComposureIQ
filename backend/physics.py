@@ -49,6 +49,37 @@ def _approach(cur: float, target: float, rate: float) -> float:
     return cur + (target - cur) * rate
 
 
+def compute_motion(t: float, speaking: bool, stress: float, rnd: random.Random | None = None) -> dict:
+    """Variable motion waveform reactive to stress, questions, and speech."""
+    if rnd is None:
+        rnd = random.Random(int(t * 100))
+
+    if speaking:
+        accel_var = max(2650.0, 3200 + 2600 * stress + 650 * math.sin(t * 1.3) + rnd.uniform(-450, 750))
+        gyro = max(20.0, 74 + 62 * stress + 28 * math.sin(t * 1.45) + 14 * math.cos(t * 0.85) + rnd.uniform(-12, 16))
+        fidget = min(100.0, max(0.0, 28 + 56 * stress + 10 * abs(math.sin(t * 1.2)) + rnd.uniform(-5, 8)))
+    elif stress > 0.15:
+        accel_var = max(100.0, min(2350.0, 450 + 1350 * stress * (0.55 + 0.45 * abs(math.sin(t * 1.1))) + rnd.uniform(-120, 220)))
+        gyro = max(12.0, 44 + 64 * stress + 26 * math.sin(t * 1.25) + 15 * math.cos(t * 0.7) + rnd.uniform(-9, 12))
+        fidget = min(100.0, max(0.0, 18 + 52 * stress + 12 * abs(math.sin(t * 1.1)) + rnd.uniform(-4, 6)))
+    else:
+        accel_var = max(60.0, 180 + 200 * abs(math.sin(t * 0.5)) + 500 * stress + rnd.uniform(-40, 80))
+        gyro = max(3.0, 13 + 7 * math.sin(t * 0.65) + 4 * math.cos(t * 1.1) + 35 * stress + rnd.uniform(-2.5, 3.5))
+        fidget = max(2.0, min(100.0, 6 + 4 * math.sin(t * 0.6) + 28 * stress + rnd.uniform(-2, 3)))
+
+    amp_p = 18.0 if speaking else (9.0 * stress + 2.5)
+    amp_r = 25.0 if speaking else (12.0 * stress + 3.0)
+    pitch = -12 + amp_p * math.sin(t / 2.1) + rnd.uniform(-2.5, 2.5)
+    roll = 8 + amp_r * math.sin(t / 1.6) + rnd.uniform(-2.5, 2.5)
+    return {
+        "accel_var": accel_var,
+        "gyro_mag": gyro,
+        "fidget_index": fidget,
+        "pitch": pitch,
+        "roll": roll,
+    }
+
+
 def step(ps: PhysicsState, now: float, speaking: bool, stress: float,
          geofence_override: bool, force_pacer: bool, phase_override: str | None = None) -> dict:
     """Advance one 1 Hz tick and return a telemetry payload shaped like the watch's."""
@@ -86,17 +117,13 @@ def step(ps: PhysicsState, now: float, speaking: bool, stress: float,
         if speaking and ps.phase in ("IDLE", "PRIMER"):
             ps.phase = "LIVE"
 
-    # --- Motion: speaking produces gesture variance; stress adds fidget jitter.
-    if speaking:
-        accel_var = 3200 + 2600 * stress + rnd.uniform(-600, 900)
-        gyro = 55 + 90 * stress + rnd.uniform(-15, 25)
-        fidget = min(100, 25 + 60 * stress + rnd.uniform(-5, 8))
-    else:
-        accel_var = 300 + 900 * stress * rnd.random()
-        gyro = 4 + 18 * stress * rnd.random()
-        fidget = max(0, 6 + 25 * stress * rnd.random())
-    pitch = -12 + (18 if speaking else 2) * math.sin(ps.t / 2.3) + rnd.uniform(-3, 3)
-    roll = 8 + (25 if speaking else 3) * math.sin(ps.t / 1.7) + rnd.uniform(-3, 3)
+    # --- Motion: speaking produces gesture variance; questions/stress drive variable gyro rotation.
+    mot = compute_motion(ps.t, speaking, stress, rnd)
+    accel_var = mot["accel_var"]
+    gyro = mot["gyro_mag"]
+    fidget = mot["fidget_index"]
+    pitch = mot["pitch"]
+    roll = mot["roll"]
 
     # --- Stillness gate with 2.5 s hold.
     pacer = False

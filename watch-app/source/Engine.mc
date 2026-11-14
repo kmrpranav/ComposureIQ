@@ -198,17 +198,30 @@ class Engine {
         temp = rawTemp != null ? rawTemp + (_synTemp - 33.4) : _synTemp;
         heading = rawHeading != null ? Math.toDegrees(rawHeading) : _synHeading;
 
-        // Effective motion variance: real accel, or mic-driven envelope from FastAPI.
+        // Effective motion variance: real accel, or variable simulator/question envelope.
         accelVar = realAccelVar;
         if (micSpeaking) {
-            var synVar = 3200.0 + 2600.0 * stress + Rnd.range(-600.0, 900.0);
+            var synVar = 3200.0 + 2600.0 * stress + 650.0 * Math.sin(tick * 1.3) + Rnd.range(-450.0, 750.0);
+            if (synVar < 2650.0) { synVar = 2650.0; }
             if (synVar > accelVar) {
                 accelVar = synVar;
-                gyroMag = 55.0 + 90.0 * stress + Rnd.range(-15.0, 25.0);
+                gyroMag = 74.0 + 62.0 * stress + 28.0 * Math.sin(tick * 1.45) + 14.0 * Math.cos(tick * 0.85) + Rnd.range(-12.0, 16.0);
                 gyroJerk = 8.0 + 30.0 * stress * Rnd.range(0.5, 1.0);
-                pitch = -12.0 + 18.0 * Math.sin(tick / 2.3) + Rnd.range(-3.0, 3.0);
-                roll = 8.0 + 25.0 * Math.sin(tick / 1.7) + Rnd.range(-3.0, 3.0);
+                pitch = -12.0 + 18.0 * Math.sin(tick / 2.1) + Rnd.range(-2.5, 2.5);
+                roll = 8.0 + 25.0 * Math.sin(tick / 1.6) + Rnd.range(-2.5, 2.5);
             }
+        } else if (gyroJerk < 1.0) {
+            // Simulator gyro is static when stationary; modulate so stress/questions drive natural rotation variance.
+            if (stress > 0.15) {
+                gyroMag = 44.0 + 64.0 * stress + 26.0 * Math.sin(tick * 1.25) + 15.0 * Math.cos(tick * 0.7) + Rnd.range(-9.0, 12.0);
+                pitch = -12.0 + (9.0 * stress + 2.5) * Math.sin(tick / 2.1) + Rnd.range(-2.5, 2.5);
+                roll = 8.0 + (12.0 * stress + 3.0) * Math.sin(tick / 1.6) + Rnd.range(-2.5, 2.5);
+            } else {
+                gyroMag = 13.0 + 7.0 * Math.sin(tick * 0.65) + 4.0 * Math.cos(tick * 1.1) + 35.0 * stress + Rnd.range(-2.5, 3.5);
+                pitch = -12.0 + 2.5 * Math.sin(tick / 2.1) + Rnd.range(-2.5, 2.5);
+                roll = 8.0 + 3.0 * Math.sin(tick / 1.6) + Rnd.range(-2.5, 2.5);
+            }
+            if (gyroMag < 3.0) { gyroMag = 3.0; }
         }
         var fidgetRaw = (hfEnergy / 4.0) + (gyroJerk * 1.2) + (micSpeaking ? 25.0 + 60.0 * stress : 6.0 + 25.0 * stress * Rnd.range(0.0, 1.0));
         fidget = fidgetRaw > 100.0 ? 100.0 : fidgetRaw;

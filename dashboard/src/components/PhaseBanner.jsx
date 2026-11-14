@@ -1,4 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
+import {
+  CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis,
+} from 'recharts'
 import { post } from '../hooks'
 import { C, last, score, scoreColor } from '../sensors'
 
@@ -16,14 +19,12 @@ function downloadBlob(filename, content, type) {
   URL.revokeObjectURL(url)
 }
 
-function EnRouteBanner({ telemetry, stage }) {
-  const dist = last(telemetry, 'distance_m')
+function BaselineBanner({ telemetry, stage }) {
   const hr = last(telemetry, 'hr')
+  const rmssd = last(telemetry, 'rmssd')
+  const spo2 = last(telemetry, 'spo2')
   const temp = last(telemetry, 'temp')
   const cal = stage?.calendar_event
-  const fence = cal?.radius_m ?? 100
-  const distNum = dist ?? 450
-  const pct = Math.max(4, Math.min(100, ((500 - Math.min(500, distNum)) / (500 - fence)) * 100))
   const minsLeft = cal?.start_epoch ? Math.max(0, Math.round((cal.start_epoch - Date.now() / 1000) / 60)) : 10
 
   return (
@@ -31,38 +32,42 @@ function EnRouteBanner({ telemetry, stage }) {
       <div className="min-w-0 flex-1 space-y-1.5">
         <div className="flex flex-wrap items-center gap-2">
           <span className="rounded bg-accent-soft px-2 py-0.5 font-mono text-[10px] font-medium uppercase tracking-wider text-accent">
-            Stage 1 · Geofence Watch
+            Stage 1 · Baseline Calibration
           </span>
           <span className="text-[13px] font-semibold text-ink">
-            {cal?.title ?? 'Senior SWE Onsite — Platform Calgary'}
+            {cal?.title ?? 'Senior SWE Onsite'}
           </span>
           <span className="font-mono text-[11px] text-muted">starts in ~{minsLeft} min</span>
         </div>
-        <div className="flex flex-wrap items-center gap-x-5 gap-y-1 text-[12px] text-muted">
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[12px] text-muted">
           <span>
-            <span className="font-mono font-medium text-ink">
-              {dist == null ? '—' : dist >= 1000 ? `${(dist / 1000).toFixed(2)} km` : `${dist.toFixed(0)} m`}
-            </span>{' '}
-            to venue · auto-primer triggers inside <span className="font-mono text-ink">&lt;{fence} m</span>
+            Calibrating resting baseline before your interview begins:
           </span>
           <span className="font-mono text-[11px]">
-            baseline HR {hr != null ? `${hr.toFixed(0)} bpm` : '—'} · skin {temp != null ? `${temp.toFixed(1)}°C` : '—'}
+            HR <strong className="text-ink">{hr != null ? `${hr.toFixed(0)} bpm` : '—'}</strong> ·
+            HRV <strong className="text-ink">{rmssd != null ? `${rmssd.toFixed(0)} ms` : '—'}</strong> ·
+            SpO₂ <strong className="text-ink">{spo2 != null ? `${spo2.toFixed(1)}%` : '—'}</strong> ·
+            skin <strong className="text-ink">{temp != null ? `${temp.toFixed(1)}°C` : '—'}</strong>
           </span>
-        </div>
-        <div className="flex items-center gap-2">
-          <div className="h-1.5 max-w-xs flex-1 overflow-hidden rounded-full bg-sunk ring-1 ring-line">
-            <div className="h-full bg-accent transition-[width] duration-700" style={{ width: `${pct}%` }} />
-          </div>
-          <span className="font-mono text-[10px] text-faint">Toybox.Position · Haversine</span>
         </div>
       </div>
 
-      <button
-        onClick={() => post('/api/control', { action: 'venue_arrival' })}
-        className="shrink-0 rounded-md bg-accent px-3.5 py-2 text-[12px] font-medium text-white shadow-sm transition hover:bg-accent/90 active:translate-y-px"
-      >
-        Arrive at Venue (&lt;100m) → Start Primer
-      </button>
+      <div className="flex flex-wrap items-center gap-2">
+        <button
+          type="button"
+          onClick={() => post('/api/control', { action: 'set_phase', phase: 'PRIMER' })}
+          className="shrink-0 rounded-md bg-accent px-3.5 py-2 text-[12px] font-medium text-white shadow-sm transition hover:bg-accent/90 active:translate-y-px"
+        >
+          Start Breathing Primer →
+        </button>
+        <button
+          type="button"
+          onClick={() => post('/api/control', { action: 'set_phase', phase: 'LIVE' })}
+          className="shrink-0 rounded-md border border-line-strong bg-card px-3 py-2 text-[12px] font-medium text-ink transition hover:border-accent hover:text-accent active:translate-y-px"
+        >
+          Start Interview Now →
+        </button>
+      </div>
     </div>
   )
 }
@@ -188,13 +193,29 @@ function LiveBanner({ telemetry, events, pacerActive }) {
         onClick={() => post('/api/control', { action: 'set_phase', phase: 'DONE' })}
         className="shrink-0 rounded-md border border-line-strong bg-card px-3 py-1.5 text-[12px] font-medium text-ink transition hover:border-accent hover:text-accent active:translate-y-px"
       >
-        Finish & Save (.FIT) → View Debrief
+        Finish Interview → View Debrief
       </button>
     </div>
   )
 }
 
-function DebriefBanner({ telemetry, events, callouts, transcript, stage, onSelectChannel }) {
+function ProgressionTooltip({ active, payload }) {
+  if (!active || !payload?.length) return null
+  const row = payload[0]?.payload
+  if (!row) return null
+  return (
+    <div className="rounded-md border border-line bg-white/95 px-2.5 py-1.5 text-[11px] text-ink shadow-md">
+      <div className="mb-1 border-b border-line/70 pb-0.5 font-semibold">{row.label}</div>
+      <div className="space-y-0.5 font-mono text-[10.5px]">
+        <div style={{ color: C.good }}>Composure: {row.composure}</div>
+        <div style={{ color: C.alert }}>Fidget: {row.fidget}</div>
+        <div className="text-muted">Apnea dips: {row.apnea}</div>
+      </div>
+    </div>
+  )
+}
+
+export function DebriefBanner({ telemetry, events, callouts, transcript, stage, onSelectChannel }) {
   const summary = useMemo(() => {
     const composures = telemetry.map((r) => r.composure_index).filter((v) => v != null)
     const fidgets = telemetry.map((r) => r.fidget_index).filter((v) => v != null)
@@ -253,25 +274,25 @@ function DebriefBanner({ telemetry, events, callouts, transcript, stage, onSelec
   const liveCompVal = Math.round(summary.avgComp ?? 78)
   const liveFidVal = Math.round(summary.avgFid ?? 21)
   const historyRows = [
-    { label: 'Session 1 (2 wks ago)', composure: 54, fidget: 48, apnea: 4 },
-    { label: 'Session 2 (1 wk ago)', composure: 63, fidget: 37, apnea: 2 },
-    { label: 'Session 3 (3 days ago)', composure: 71, fidget: 28, apnea: 1 },
-    { label: 'Today (Live)', composure: liveCompVal, fidget: liveFidVal, apnea: summary.apneaDips, live: true },
+    { short: 'Session 1', label: 'Session 1 (2 wks ago)', composure: 54, fidget: 48, apnea: 4 },
+    { short: 'Session 2', label: 'Session 2 (1 wk ago)', composure: 63, fidget: 37, apnea: 2 },
+    { short: 'Session 3', label: 'Session 3 (3 days ago)', composure: 71, fidget: 28, apnea: 1 },
+    { short: 'Today (Live)', label: 'Today (Live)', composure: liveCompVal, fidget: liveFidVal, apnea: summary.apneaDips, live: true },
   ]
 
   const exportJson = () => {
     downloadBlob(
       `composureiq-session-${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.json`,
-      JSON.stringify({ stage, summary, fit_fields: ['composure_index', 'fidget_index'], callouts, transcript, telemetry }, null, 2),
+      JSON.stringify({ stage, summary, callouts, transcript, telemetry }, null, 2),
       'application/json',
     )
   }
 
   const exportCsv = () => {
-    const cols = ['t', 'phase', 'gate', 'hr', 'rmssd', 'spo2', 'temp', 'accel_var', 'gyro_mag', 'heading', 'distance_m', 'fidget_index', 'composure_index', 'pacer_fired']
+    const cols = ['t', 'phase', 'gate', 'hr', 'rmssd', 'spo2', 'temp', 'accel_var', 'gyro_mag', 'fidget_index', 'composure_index', 'pacer_fired']
     const lines = [cols.join(','), ...telemetry.map((r) => cols.map((c) => r[c] ?? '').join(','))]
     downloadBlob(
-      `composureiq-fit-records-${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.csv`,
+      `composureiq-records-${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.csv`,
       lines.join('\n'),
       'text/csv',
     )
@@ -297,7 +318,7 @@ function DebriefBanner({ telemetry, events, callouts, transcript, stage, onSelec
         <div className="flex flex-wrap items-center gap-2">
           <button onClick={exportJson}
             className="rounded border border-line bg-sunk px-2.5 py-1 text-[11px] font-medium text-ink transition hover:border-accent hover:text-accent">
-            ⬇ Export .FIT Telemetry (JSON)
+            ⬇ Export Session (JSON)
           </button>
           <button onClick={exportCsv}
             className="rounded border border-line bg-sunk px-2.5 py-1 text-[11px] font-medium text-ink transition hover:border-accent hover:text-accent">
@@ -413,45 +434,53 @@ function DebriefBanner({ telemetry, events, callouts, transcript, stage, onSelec
         </div>
 
         <div className="space-y-2.5">
-          <div className="rounded-md border border-line bg-sunk p-2.5">
-            <div className="flex items-center justify-between">
-              <span className="label">Garmin FitContributor Developer Fields</span>
-              <span className="font-mono text-[10px] text-accent">Activity.SPORT_GENERIC</span>
-            </div>
-            <div className="mt-1.5 flex flex-wrap gap-2 font-mono text-[11px]">
-              <span className="rounded border border-line bg-card px-2 py-0.5 text-ink">
-                Field #0: <strong>composure_index</strong> (pts)
-              </span>
-              <span className="rounded border border-line bg-card px-2 py-0.5 text-ink">
-                Field #1: <strong>fidget_index</strong> (pts)
-              </span>
-              <span className="rounded border border-line bg-card px-2 py-0.5 text-muted">
-                {telemetry.length} records @ 1 Hz
-              </span>
-            </div>
-          </div>
-
           <div className="rounded-md border border-line bg-card p-2.5">
-            <div className="mb-1.5 flex items-center justify-between">
+            <div className="mb-1.5 flex flex-wrap items-center justify-between gap-2">
               <span className="label">4-Session Habit Progression</span>
-              <span className="font-mono text-[10px] text-good">Composure ↑ · Fidget ↓</span>
+              <div className="flex items-center gap-3 font-mono text-[10px]">
+                <span className="inline-flex items-center gap-1" style={{ color: C.good }}>
+                  <span className="h-0.5 w-3 rounded-full" style={{ background: C.good }} />
+                  Composure (calm ↑)
+                </span>
+                <span className="inline-flex items-center gap-1" style={{ color: C.alert }}>
+                  <span className="w-3 border-t-2 border-dashed" style={{ borderColor: C.alert }} />
+                  Fidget (stress ↓)
+                </span>
+              </div>
             </div>
-            <div className="space-y-1.5">
-              {historyRows.map((row) => (
-                <div key={row.label}
-                  className={`flex items-center gap-2 rounded px-2 py-1 text-[11px] ${row.live ? 'bg-accent-soft/70 font-medium text-ink ring-1 ring-accent/30' : 'text-muted'}`}>
-                  <span className="w-36 shrink-0 truncate">{row.label}</span>
-                  <div className="flex flex-1 items-center gap-1.5">
-                    <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-sunk">
-                      <div className="h-full rounded-full transition-[width] duration-500"
-                        style={{ width: `${Math.min(100, row.composure)}%`, background: row.live ? C.accent : C.good }} />
-                    </div>
-                  </div>
-                  <span className="w-20 shrink-0 text-right font-mono text-[10.5px]">Comp {row.composure}</span>
-                  <span className="w-16 shrink-0 text-right font-mono text-[10.5px]">Fid {row.fidget}</span>
-                  <span className="w-16 shrink-0 text-right font-mono text-[10.5px]">Apnea {row.apnea}</span>
-                </div>
-              ))}
+            <div className="h-[175px] w-full">
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={historyRows} margin={{ top: 8, right: 14, bottom: 2, left: 0 }}>
+                  <CartesianGrid stroke={C.grid} strokeDasharray="3 3" vertical={false} />
+                  <XAxis dataKey="short" stroke={C.faint} fontSize={10.5} tickLine={false} axisLine={false} />
+                  <YAxis domain={[0, 100]} width={28} stroke={C.faint} fontSize={9.5} ticks={[0, 50, 100]} tickLine={false} axisLine={false} />
+                  <Tooltip content={<ProgressionTooltip />} />
+                  <Line
+                    type="monotone"
+                    dataKey="composure"
+                    name="Composure"
+                    stroke={C.good}
+                    strokeWidth={2.25}
+                    dot={{ r: 3.5, fill: C.good }}
+                    activeDot={{ r: 5 }}
+                    isAnimationActive={false}
+                  />
+                  <Line
+                    type="monotone"
+                    dataKey="fidget"
+                    name="Fidget"
+                    stroke={C.alert}
+                    strokeWidth={2}
+                    strokeDasharray="4 3"
+                    dot={{ r: 3.5, fill: C.alert }}
+                    activeDot={{ r: 5 }}
+                    isAnimationActive={false}
+                  />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+            <div className="mt-1.5 rounded bg-sunk px-2 py-1 font-mono text-[10.5px] text-muted">
+              S1 → Today: Composure 54 → <strong className="text-ink">{liveCompVal}</strong> · Fidget 48 → <strong className="text-ink">{liveFidVal}</strong> · Apnea dips 4 → <strong className="text-ink">{summary.apneaDips}</strong>
             </div>
           </div>
         </div>
@@ -460,23 +489,12 @@ function DebriefBanner({ telemetry, events, callouts, transcript, stage, onSelec
   )
 }
 
-export default function PhaseBanner({ telemetry, stage, events, callouts, transcript, pacerActive, onSelectChannel }) {
+export default function PhaseBanner({ telemetry, stage, events, pacerActive }) {
   const row = telemetry[telemetry.length - 1]
   const phase = row?.phase ?? stage?.phase ?? 'IDLE'
 
   if (phase === 'PRIMER') return <PrimerBanner telemetry={telemetry} />
   if (phase === 'LIVE') return <LiveBanner telemetry={telemetry} events={events} pacerActive={pacerActive} />
-  if (phase === 'DONE') {
-    return (
-      <DebriefBanner
-        telemetry={telemetry}
-        events={events}
-        callouts={callouts}
-        transcript={transcript}
-        stage={stage}
-        onSelectChannel={onSelectChannel}
-      />
-    )
-  }
-  return <EnRouteBanner telemetry={telemetry} stage={stage} />
+  if (phase === 'DONE') return null
+  return <BaselineBanner telemetry={telemetry} stage={stage} />
 }

@@ -50,33 +50,21 @@ export const INFO = {
     why: 'Smooth, steady values are calm open-hand gestures. Sudden spikes are nervous flicks or face-touching.',
     good: 'Calm gestures: smooth curve, no sharp spikes',
   },
-  heading: {
-    title: 'Compass Heading',
-    what: 'Which direction your wrist and torso face, in degrees. Only measured while still.',
-    why: 'Drifting back and forth while you listen suggests chair-swiveling or restless posture.',
-    good: 'Settled: within a few degrees',
-  },
-  distance_m: {
-    title: 'Distance to Venue (GPS)',
-    what: 'Straight-line distance from you to the interview location from the calendar event.',
-    why: 'Inside 100 m (dashed line) and within 15 minutes of the start time, the watch begins the waiting-room breathing primer.',
-    good: 'Primer starts below 100 m',
-  },
   fidget_index: {
     title: 'Fidget Index · 0–100, lower is better',
     what: 'How much nervous, jittery movement your wrist is making: quick twitches, flicks and fiddling. Smooth talking gestures barely count.',
-    why: 'Built from high-frequency accelerometer jitter plus sudden gyroscope jerks. Saved every second to the watch\'s .FIT file.',
+    why: 'Built from high-frequency accelerometer jitter plus sudden gyroscope jerks across your session.',
     good: 'Green under 25 · amber 25–55 · red above 55',
   },
   composure_index: {
     title: 'Composure Index · 0–100, higher is better',
     what: 'One number for how calm your body is right now.',
-    why: 'Starts at 100, then loses points for heart rate above your baseline, fidgeting and oxygen dips, and gains points for high HRV. Saved every second to the watch\'s .FIT file.',
+    why: 'Starts at 100, then loses points for heart rate above your baseline, fidgeting and oxygen dips, and gains points for high HRV.',
     good: 'Green 70+ · amber 45–70 · red under 45',
   },
 }
 
-// The 8-sensor matrix.
+// The 6-sensor matrix.
 export const SENSORS = [
   {
     key: 'hr', num: 1, name: 'Heart Rate', shortName: 'HR', sub: '1 Hz', unit: 'bpm', digits: 0,
@@ -108,16 +96,6 @@ export const SENSORS = [
     domain: [0, 200], api: 'gyroscopeData · 25Hz 3-Axis', role: 'Smooth gestures vs nervous wrist jerk',
     gated: false,
   },
-  {
-    key: 'heading', num: 7, name: 'Compass', shortName: 'Compass', sub: 'when still', unit: '°', digits: 0,
-    domain: [120, 240], api: 'Sensor.Info.heading · Mag', role: 'Posture & chair-swivel stability',
-    gated: true,
-  },
-  {
-    key: 'distance_m', num: 8, name: 'Venue Distance', shortName: 'GPS Dist', sub: 'GPS geofence', unit: 'm', digits: 0,
-    domain: [0, 500], api: 'Toybox.Position · Haversine', role: '100m venue geofence auto-primer',
-    gated: false, threshold: 100, thresholdLabel: '100 m geofence',
-  },
 ]
 
 export const ALL_CHANNELS = [
@@ -127,15 +105,16 @@ export const ALL_CHANNELS = [
   { key: 'temp', name: 'Skin Temp', shortName: 'Temp', unit: '°C', domain: [30, 35.5] },
   { key: 'accel_var', name: 'Motion σ²', shortName: 'Motion σ²', unit: 'mg²', domain: [0, 'dataMax + 500'], threshold: 2500, thresholdLabel: '2,500 mg² gate' },
   { key: 'gyro_mag', name: 'Rotation', shortName: 'Gyro', unit: '°/s', domain: [0, 'dataMax + 10'] },
-  { key: 'heading', name: 'Compass', shortName: 'Compass', unit: '°', domain: [120, 240] },
-  { key: 'distance_m', name: 'GPS Dist', shortName: 'GPS Dist', unit: 'm', domain: [0, 'dataMax + 25'], threshold: 100, thresholdLabel: '100 m geofence' },
   { key: 'fidget_index', name: 'Fidget', shortName: 'Fidget', unit: '', domain: [0, 100] },
   { key: 'composure_index', name: 'Composure', shortName: 'Composure', unit: '', domain: [0, 100] },
 ]
 
 export const CORE_CHANNELS = ['hr', 'fidget_index', 'gyro_mag', 'spo2', 'rmssd', 'composure_index']
-export const SENSOR_8_CHANNELS = ['hr', 'rmssd', 'spo2', 'temp', 'accel_var', 'gyro_mag', 'heading', 'distance_m']
-export const ALL_10_CHANNELS = ['hr', 'rmssd', 'spo2', 'temp', 'accel_var', 'gyro_mag', 'heading', 'distance_m', 'fidget_index', 'composure_index']
+export const SENSOR_6_CHANNELS = ['hr', 'rmssd', 'spo2', 'temp', 'accel_var', 'gyro_mag']
+export const ALL_8_CHANNELS = ['hr', 'rmssd', 'spo2', 'temp', 'accel_var', 'gyro_mag', 'fidget_index', 'composure_index']
+// Backwards-compatible aliases
+export const SENSOR_8_CHANNELS = SENSOR_6_CHANNELS
+export const ALL_10_CHANNELS = ALL_8_CHANNELS
 
 /** Last non-null value of a key. */
 export const last = (rows, key) => {
@@ -160,36 +139,39 @@ const clamp01 = (v) => Math.max(0, Math.min(1, v))
 /** 0 = worst (red) … 1 = best (green), for value `v` between `bad` and `good`. */
 const between = (v, bad, good) => clamp01((v - bad) / (good - bad))
 
-/** Calm score 0..1 for a reading (1 = calm/good), or null when there is no value. */
-export function score(key, rows) {
-  const v = last(rows, key)
+/** Per-row calm score 0..1 (0 = stressed/high, 1 = calm/good), or null when absent. */
+export function rowScore(key, row, fallbackBaselineHr = 72) {
+  if (!row) return null
+  const v = row[key]
   if (v == null) return null
   switch (key) {
     case 'hr': {
-      const base = last(rows, 'baseline_hr') ?? 72
-      return between(v - base, 25, 5)          // +5 bpm green → +25 bpm red
+      const base = row.baseline_hr ?? fallbackBaselineHr
+      return between(v - base, 25, 5)          // +5 bpm green -> +25 bpm red
     }
     case 'rmssd': return between(v, 20, 55)
     case 'spo2': return between(v, 94, 97.5)
     case 'temp': return between(v, 31, 33.5)
     case 'accel_var': return between(v, 7500, 2500)
     case 'gyro_mag': return between(v, 160, 40)
-    case 'heading': {
-      const hs = rows.slice(-15).map((r) => r.heading).filter((h) => h != null)
-      if (hs.length < 3) return null
-      const m = hs.reduce((a, b) => a + b, 0) / hs.length
-      const sd = Math.sqrt(hs.reduce((a, b) => a + (b - m) ** 2, 0) / hs.length)
-      return between(sd, 15, 2)                // steady heading = settled posture
-    }
-    case 'distance_m': return between(v, 1000, 100)
     case 'composure_index': return between(v, 40, 80)
     case 'fidget_index': return between(v, 65, 20)
     default: return null
   }
 }
 
+/** Calm score 0..1 for the latest reading (1 = calm/good), or null when there is no value. */
+export function score(key, rows) {
+  const base = last(rows, 'baseline_hr') ?? 72
+  for (let i = rows.length - 1; i >= 0; i--) {
+    const sc = rowScore(key, rows[i], base)
+    if (sc != null) return sc
+  }
+  return null
+}
+
 const STOPS = [[176, 74, 63], [192, 138, 46], [63, 138, 90]] // red, amber, green (muted)
-/** Colour for a 0..1 score on the red → amber → green index. */
+/** Colour for a 0..1 score on the red -> amber -> green index. */
 export function scoreColor(sc) {
   if (sc == null) return C.faint
   const t = clamp01(sc) * 2
@@ -198,5 +180,37 @@ export function scoreColor(sc) {
   const c = a.map((x, i) => Math.round(x + (b[i] - x) * f))
   return `rgb(${c.join(',')})`
 }
+
+/** Horizontal SVG linearGradient stops along the plotted rows based on red-to-green calm score. */
+export function buildColorStops(key, rows) {
+  if (!rows || rows.length === 0) return []
+  const base = last(rows, 'baseline_hr') ?? 72
+  const valid = []
+  for (let i = 0; i < rows.length; i++) {
+    const sc = rowScore(key, rows[i], base)
+    if (sc != null) valid.push({ t: rows[i]?.t, sc, idx: i })
+  }
+  if (valid.length < 2) return []
+
+  const count = Math.min(36, valid.length)
+  const sampled = []
+  for (let i = 0; i < count; i++) {
+    const vIdx = Math.round((i / (count - 1)) * (valid.length - 1))
+    sampled.push(valid[vIdx])
+  }
+
+  const minT = sampled[0].t
+  const maxT = sampled[sampled.length - 1].t
+  const hasTimeSpan = minT != null && maxT != null && maxT > minT
+
+  return sampled.map((p, i) => {
+    const pct = hasTimeSpan ? ((p.t - minT) / (maxT - minT)) * 100 : (i / (sampled.length - 1)) * 100
+    return {
+      offset: `${(clamp01(pct / 100) * 100).toFixed(1)}%`,
+      color: scoreColor(p.sc),
+    }
+  })
+}
+
 export const scoreWord = (sc) => (sc == null ? '—' : sc >= 0.66 ? 'calm' : sc >= 0.33 ? 'elevated' : 'high')
 export const SCALE_GRADIENT = 'linear-gradient(90deg, rgb(176,74,63), rgb(192,138,46), rgb(63,138,90))'

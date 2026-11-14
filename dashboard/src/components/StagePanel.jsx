@@ -5,19 +5,19 @@ import WatchMirror from './WatchMirror'
 
 const STAGE_INFO = {
   IDLE: {
-    does: 'The watch tracks your GPS distance to the venue from the calendar event. Nothing vibrates.',
-    next: 'Within 100 m of the venue and 15 min of the start time, or Venue arrival is pressed.',
+    does: 'The watch calibrates your resting heart rate, HRV, SpO₂, and wrist skin temperature before the session. Nothing vibrates.',
+    next: 'Start Primer is pressed, START is pressed on the watch, or voice is detected.',
   },
   PRIMER: {
     does: 'Guided physiological sigh every 10 s: two short "inhale" pulses, then one long, gentle "exhale" pulse. It watches HRV, SpO₂ and skin temperature recover.',
-    next: 'HRV reaches 55 ms after at least 20 s, 90 s pass, you start speaking, or START is pressed.',
+    next: 'HRV reaches 55 ms after at least 20 s, 90 s pass, you start speaking, or Start Interview is pressed.',
   },
   LIVE: {
     does: 'The screen dims to a plain analog face. Wrist motion decides Speaking vs Listening. No vibration ever fires while you speak.',
-    next: 'Back button or Finish & Save on the watch.',
+    next: 'Back button or Finish Interview is pressed.',
   },
   DONE: {
-    does: 'Session saved to the .FIT file with the composure and fidget fields. Review the flight recorder below.',
+    does: 'Session complete with full biometric & transcript debrief ready in the flight recorder.',
     next: 'Reset starts a new session.',
   },
 }

@@ -1,12 +1,10 @@
 import { Area, AreaChart, ReferenceLine, ResponsiveContainer, YAxis } from 'recharts'
-import { C, SCALE_GRADIENT, SENSORS, last, score, scoreColor, scoreWord } from '../sensors'
+import { C, SCALE_GRADIENT, SENSORS, buildColorStops, last, score, scoreColor, scoreWord } from '../sensors'
 import InfoTip from './InfoTip'
 
 const word = (key, sc) => {
   if (sc == null) return null
-  if (key === 'distance_m') return sc >= 0.99 ? 'at venue' : sc > 0.5 ? 'approaching' : 'far'
   if (key === 'accel_var' || key === 'gyro_mag') return sc >= 0.66 ? 'steady' : sc >= 0.33 ? 'active' : 'restless'
-  if (key === 'heading') return sc >= 0.66 ? 'settled' : sc >= 0.33 ? 'shifting' : 'swiveling'
   return scoreWord(sc)
 }
 
@@ -16,6 +14,8 @@ function Tile({ s, rows, gate, active, onToggle }) {
   const sc = score(s.key, rows)
   const col = scoreColor(sc)
   const data = rows.slice(-90)
+  const stops = buildColorStops(s.key, data)
+  const lineCol = sc != null ? col : C.good
 
   return (
     <div
@@ -90,15 +90,28 @@ function Tile({ s, rows, gate, active, onToggle }) {
       <div className="-mx-3 h-10">
         <ResponsiveContainer width="100%" height="100%">
           <AreaChart data={data} margin={{ top: 4, right: 0, bottom: 0, left: 0 }}>
+            <defs>
+              <linearGradient id={`tile-stroke-${s.key}`} x1="0" y1="0" x2="1" y2="0">
+                {stops.map((st, idx) => (
+                  <stop key={idx} offset={st.offset} stopColor={st.color} stopOpacity={1} />
+                ))}
+              </linearGradient>
+              <linearGradient id={`tile-fill-${s.key}`} x1="0" y1="0" x2="1" y2="0">
+                {stops.map((st, idx) => (
+                  <stop key={idx} offset={st.offset} stopColor={st.color} stopOpacity={0.32} />
+                ))}
+              </linearGradient>
+            </defs>
             <YAxis hide domain={s.domain} allowDataOverflow />
             {s.threshold && <ReferenceLine y={s.threshold} stroke={C.faint} strokeDasharray="3 3" />}
             <Area
               type="monotone"
               dataKey={s.key}
-              stroke={C.accent}
-              strokeWidth={1.4}
-              fill={C.accentSoft}
-              fillOpacity={0.7}
+              stroke={stops.length > 1 ? `url(#tile-stroke-${s.key})` : lineCol}
+              strokeWidth={1.7}
+              fill={stops.length > 1 ? `url(#tile-fill-${s.key})` : lineCol}
+              fillOpacity={stops.length > 1 ? 1 : 0.32}
+              baseValue="dataMin"
               isAnimationActive={false}
               connectNulls
               dot={false}
@@ -124,10 +137,10 @@ export default function SensorStrip({ telemetry, gate, activeChannels = [], onTo
   return (
     <div>
       <div className="mb-1.5 flex flex-wrap items-center justify-between gap-2 px-0.5">
-        <span className="label">8 Garmin Fenix 7 Pro sensors · click any tile to toggle in flight recorder</span>
+        <span className="label">6 Garmin Fenix 7 Pro sensors · click any tile to toggle in flight recorder</span>
         <ScaleLegend />
       </div>
-      <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
+      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
         {SENSORS.map((s) => (
           <Tile
             key={s.key}

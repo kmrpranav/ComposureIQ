@@ -1,12 +1,12 @@
 import { useState } from 'react'
 import FlightRecorder from './components/FlightRecorder'
 import Navbar from './components/Navbar'
-import PhaseBanner from './components/PhaseBanner'
+import PhaseBanner, { DebriefBanner } from './components/PhaseBanner'
 import SensorStrip from './components/SensorStrip'
 import { Callouts, Transcript } from './components/SidePanels'
 import StagePanel from './components/StagePanel'
 import { useMic, useSpine } from './hooks'
-import { ALL_10_CHANNELS, CORE_CHANNELS } from './sensors'
+import { ALL_8_CHANNELS, CORE_CHANNELS } from './sensors'
 
 const PACER_FLASH_S = 4
 
@@ -17,6 +17,7 @@ export default function App() {
   const [activeChannels, setActiveChannels] = useState(CORE_CHANNELS)
   const { telemetry, stage, events } = spine
   const row = telemetry[telemetry.length - 1]
+  const phase = row?.phase ?? stage?.phase ?? 'IDLE'
   const gate = row?.gate ?? stage?.gate ?? 'LISTENING'
   const now = row?.t ?? 0
   const lastPacer = [...events].reverse().find((e) => e.kind === 'pacer')
@@ -28,12 +29,12 @@ export default function App() {
       if (prev.includes(key)) {
         return prev.length > 1 ? prev.filter((k) => k !== key) : prev
       }
-      return ALL_10_CHANNELS.filter((k) => prev.includes(k) || k === key)
+      return ALL_8_CHANNELS.filter((k) => prev.includes(k) || k === key)
     })
   }
 
   const ensureChannel = (key) => {
-    setActiveChannels((prev) => (prev.includes(key) ? prev : ALL_10_CHANNELS.filter((k) => prev.includes(k) || k === key)))
+    setActiveChannels((prev) => (prev.includes(key) ? prev : ALL_8_CHANNELS.filter((k) => prev.includes(k) || k === key)))
   }
 
   const hasQuestions = spine.transcript.some((l) => l.is_question)
@@ -71,6 +72,16 @@ export default function App() {
               setActiveChannels={setActiveChannels}
             />
           </div>
+          {phase === 'DONE' && (
+            <DebriefBanner
+              telemetry={telemetry}
+              events={events}
+              callouts={spine.callouts}
+              transcript={spine.transcript}
+              stage={stage}
+              onSelectChannel={ensureChannel}
+            />
+          )}
         </div>
         <div className="flex min-w-0 flex-col gap-3">
           <StagePanel telemetry={telemetry} events={events} stage={stage} pacerActive={pacerActive} />

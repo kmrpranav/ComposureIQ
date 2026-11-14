@@ -163,33 +163,32 @@ async def log_event(kind: str, label: str, **extra):
     await hub.broadcast({"type": "event", "data": ev})
 
 
-PHASE_LABEL = {"IDLE": "En route", "PRIMER": "Primer", "LIVE": "Live", "DONE": "Debrief"}
+PHASE_LABEL = {"IDLE": "Baseline", "PRIMER": "Primer", "LIVE": "Live Interview", "DONE": "Debrief"}
+PHASE_GRAPH_LABEL = {
+    "IDLE": "Baseline Standby",
+    "PRIMER": "Primer Started",
+    "LIVE": "Interview Started",
+    "DONE": "Interview Complete",
+}
 
 
 def phase_reason(prev: str, new: str, x: dict) -> str:
     """Plain-language reason for a stage change, inferred from the sample that caused it."""
-    if len(S.telemetry) <= 1:
-        return (f"The watch was already in {PHASE_LABEL.get(new, new)} when this session started "
-                "(the dashboard was reset, but the watch keeps its own stage).")
+    if len(S.telemetry) <= 1 and new != "IDLE":
+        return f"Starting in {PHASE_LABEL.get(new, new)} stage."
     if new == "PRIMER":
-        if S.geofence_override:
-            return "Presenter pressed Venue arrival (geofence override), so the breathing primer started."
-        d = x.get("distance_m")
-        return (f"You are {d:.0f} m from the venue (inside the 100 m geofence) and the interview starts "
-                "within 15 min, so the breathing primer started.") if d is not None else \
-            "Arrived inside the venue geofence within 15 min of the interview."
+        return "Started 10 s physiological sigh breathing primer to elevate HRV before the interview."
     if new == "LIVE":
         if prev == "PRIMER":
             if S.speaking:
-                return "Voice detected during the primer, so it ended early and Live began."
+                return "Starting interview — voice detected during primer, entering dim Stealth Mode."
             rm = x.get("rmssd")
             if rm is not None and rm >= 55:
-                return f"HRV recovered to {rm:.0f} ms (target 55 ms or more, after at least 20 s of breathing)."
-            return "Primer reached its 90 s limit."
-        return "Voice detected before venue arrival, so Live started directly."
+                return f"Starting interview — HRV recovered to {rm:.0f} ms (55 ms+ target), entering Stealth Mode."
+        return "Starting interview — watch dimmed to Stealth Mode and armed the Listening Gate."
     if new == "DONE":
-        return "Session finished and saved to the watch's .FIT file."
-    return "Session reset."
+        return "Interview finished — post-interview debrief and habit scorecard ready."
+    return "Baseline calibration standby."
 
 
 async def pacer_decision(x: dict):
@@ -222,8 +221,13 @@ async def ingest(sample: dict):
     S.telemetry.append(sample)
     await hub.broadcast({"type": "telemetry", "data": sample})
     if S.phase != prev_phase:
-        await log_event("phase", f"Stage: {PHASE_LABEL.get(S.phase, S.phase)}", phase=S.phase,
-                        reason=phase_reason(prev_phase, S.phase, sample))
+        await log_event(
+            "phase",
+            f"Stage: {PHASE_LABEL.get(S.phase, S.phase)}",
+            phase=S.phase,
+            graph_label=PHASE_GRAPH_LABEL.get(S.phase, S.phase),
+            reason=phase_reason(prev_phase, S.phase, sample),
+        )
     if S.gate != prev_gate:
         await log_event("gate", f"{S.gate.title()} gate")
         if prev_gate == "SPEAKING" and S.gate == "LISTENING" and not sample.get("pacer_forced"):
@@ -262,6 +266,23 @@ async def telemetry(body: Telemetry):
     sample.setdefault("source", "watch")
     if S.phase_override and sample.get("phase") != S.phase_override:
         sample["phase"] = S.phase_override
+    mot = physics.compute_motion(S.t(), S.speaking, S.stress)
+    sample["gyro_mag"] = round(mot["gyro_mag"], 1)
+    sample["pitch"] = round(mot["pitch"], 1)
+    sample["roll"] = round(mot["roll"], 1)
+    sample["fidget_index"] = round(mot["fidget_index"], 1)
+    if S.speaking or sample.get("accel_var") is None or sample.get("accel_var", 0) < 50:
+        sample["accel_var"] = round(mot["accel_var"], 1)
+    base_hr = sample.get("baseline_hr") or physics.BASELINE_HR
+    hr_v = sample.get("hr")
+    rmssd_v = sample.get("rmssd") if sample.get("rmssd") is not None else 50.0
+    spo2_v = sample.get("spo2") if sample.get("spo2") is not None else 97.5
+    if hr_v is not None:
+        sample["composure_index"] = round(
+            max(0.0, min(100.0, 100.0 - 0.9 * max(0.0, hr_v - base_hr) - 0.35 * sample["fidget_index"]
+                         - 4.0 * max(0.0, 97.5 - spo2_v) + 0.25 * (rmssd_v - 40.0))),
+            1,
+        )
     await ingest(sample)
     resp = S.stage_response()
     if S.phase_override:
@@ -371,7 +392,7 @@ async def record_transcript_text(
         entries.append(entry)
 
         if cls["is_question"]:
-            S.stress = max(S.stress, 0.78)
+            S.stress = max(S.stress, 0.85)
             S.pending_q.append(entry)
         else:
             S.active_answer_id = entry["id"]
@@ -562,12 +583,24 @@ class Control(BaseModel):
 async def control(body: Control):
     a = body.action
     if a == "venue_arrival":
+        prev = S.phase
         S.geofence_override = True
-        await log_event("control", "Simulated venue arrival")
+        S.phase_override = "PRIMER"
+        S.phase = "PRIMER"
+        S.physics.phase = "PRIMER"
+        S.physics.primer_started = time.time()
+        await log_event(
+            "phase",
+            f"Stage: {PHASE_LABEL['PRIMER']}",
+            phase="PRIMER",
+            graph_label=PHASE_GRAPH_LABEL["PRIMER"],
+            reason=phase_reason(prev, "PRIMER", S.telemetry[-1] if S.telemetry else {}),
+        )
     elif a == "set_phase":
         target = (body.phase or "IDLE").upper()
         if target not in ("IDLE", "PRIMER", "LIVE", "DONE"):
             return {"ok": False, "error": f"unknown phase {target}"}
+        prev = S.phase
         S.phase_override = target
         S.phase = target
         S.physics.phase = target
@@ -583,7 +616,8 @@ async def control(body: Control):
             "phase",
             f"Stage: {PHASE_LABEL.get(target, target)}",
             phase=target,
-            reason=f"Presenter switched stage to {PHASE_LABEL.get(target, target)}.",
+            graph_label=PHASE_GRAPH_LABEL.get(target, target),
+            reason=phase_reason(prev, target, S.telemetry[-1] if S.telemetry else {}),
         )
     elif a == "simulate_answer":
         dur = float(body.duration or 6.0)

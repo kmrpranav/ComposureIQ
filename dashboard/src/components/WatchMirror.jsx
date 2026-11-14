@@ -26,7 +26,7 @@ export default function WatchMirror({ telemetry, stage, events, pacerActive }) {
     }
   }, [phase])
 
-  const dist = last(telemetry, 'distance_m')
+  const hr = last(telemetry, 'hr')
   const rmssd = last(telemetry, 'rmssd')
   const spo2 = last(telemetry, 'spo2')
   const temp = last(telemetry, 'temp')
@@ -63,7 +63,7 @@ export default function WatchMirror({ telemetry, stage, events, pacerActive }) {
       setMenuOpen(false)
       return
     }
-    if (phase === 'IDLE') post('/api/control', { action: 'venue_arrival' })
+    if (phase === 'IDLE') post('/api/control', { action: 'set_phase', phase: 'PRIMER' })
     else if (phase === 'PRIMER') post('/api/control', { action: 'set_phase', phase: 'LIVE' })
     else if (phase === 'DONE') post('/api/control', { action: 'set_phase', phase: 'IDLE' })
   }
@@ -137,31 +137,38 @@ export default function WatchMirror({ telemetry, stage, events, pacerActive }) {
                   <div className="space-y-0.5">
                     <button
                       type="button"
-                      onClick={() => runMenuAction('venue_arrival')}
-                      className="block w-full rounded bg-white/5 px-2 py-0.5 text-left text-[9.5px] text-white hover:bg-sky-500/20"
+                      onClick={() => runMenuAction('set_phase', { phase: 'PRIMER' })}
+                      className="block w-full rounded bg-white/5 px-2 py-0.5 text-left text-[9px] text-white hover:bg-sky-500/20"
                     >
-                      1. Venue Arrival
+                      1. Start Primer
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => runMenuAction('set_phase', { phase: 'LIVE' })}
+                      className="block w-full rounded bg-white/5 px-2 py-0.5 text-left text-[9px] text-white hover:bg-sky-500/20"
+                    >
+                      2. Start Interview
                     </button>
                     <button
                       type="button"
                       onClick={() => runMenuAction('stress_question')}
-                      className="block w-full rounded bg-white/5 px-2 py-0.5 text-left text-[9.5px] text-white hover:bg-sky-500/20"
+                      className="block w-full rounded bg-white/5 px-2 py-0.5 text-left text-[9px] text-white hover:bg-sky-500/20"
                     >
-                      2. High-Stress Q
+                      3. High-Stress Q
                     </button>
                     <button
                       type="button"
                       onClick={() => runMenuAction('force_pacer')}
-                      className="block w-full rounded bg-white/5 px-2 py-0.5 text-left text-[9.5px] text-white hover:bg-sky-500/20"
+                      className="block w-full rounded bg-white/5 px-2 py-0.5 text-left text-[9px] text-white hover:bg-sky-500/20"
                     >
-                      3. Listening Pacer
+                      4. Listening Pacer
                     </button>
                     <button
                       type="button"
                       onClick={() => runMenuAction('set_phase', { phase: 'DONE' })}
-                      className="block w-full rounded bg-white/5 px-2 py-0.5 text-left text-[9.5px] text-white hover:bg-sky-500/20"
+                      className="block w-full rounded bg-white/5 px-2 py-0.5 text-left text-[9px] text-white hover:bg-sky-500/20"
                     >
-                      4. Finish &amp; Save
+                      5. Finish Interview
                     </button>
                   </div>
                 </div>
@@ -241,7 +248,7 @@ export default function WatchMirror({ telemetry, stage, events, pacerActive }) {
             ) : phase === 'DONE' ? (
               /* SummaryView */
               <div className="flex flex-col items-center px-3 text-center">
-                <div className="font-mono text-[8.5px] tracking-widest text-sky-400">SESSION SAVED</div>
+                <div className="font-mono text-[8.5px] tracking-widest text-sky-400">SESSION COMPLETE</div>
                 <div className="mt-1.5 font-mono text-[34px] font-semibold leading-none text-white">
                   {composure != null ? Math.round(composure) : '--'}
                 </div>
@@ -253,13 +260,13 @@ export default function WatchMirror({ telemetry, stage, events, pacerActive }) {
               /* IdleView */
               <div className="flex flex-col items-center px-4 text-center">
                 <div className="font-mono text-[9.5px] font-medium text-sky-400">ComposureIQ</div>
-                <div className="mt-2 font-mono text-[8px] tracking-widest text-slate-400">NEXT EVENT</div>
+                <div className="mt-1.5 font-mono text-[8px] tracking-widest text-emerald-400">BASELINE READY</div>
                 <div className="mt-0.5 max-w-[140px] truncate text-[9.5px] text-white">{calTitle}</div>
-                <div className="mt-2 font-mono text-[22px] font-semibold leading-none text-white">
-                  {dist == null ? 'GPS --' : dist >= 1000 ? `${(dist / 1000).toFixed(1)} km` : `${Math.round(dist)} m`}
+                <div className="mt-2 font-mono text-[13px] font-semibold leading-none text-white">
+                  HR {hr != null ? Math.round(hr) : '--'} · HRV {rmssd != null ? Math.round(rmssd) : '--'}ms
                 </div>
-                <div className="mt-2 font-mono text-[8.5px] text-slate-400">
-                  T-{minsLeft} min · fence 100 m
+                <div className="mt-2 font-mono text-[8px] text-slate-400">
+                  T-{minsLeft} min · press START for primer
                 </div>
                 <div className={`mt-2 font-mono text-[8.5px] ${source ? 'text-emerald-400' : 'text-rose-400'}`}>
                   {source === 'watch' ? 'spine linked' : source ? 'sim active' : 'spine offline'}
@@ -275,7 +282,7 @@ export default function WatchMirror({ telemetry, stage, events, pacerActive }) {
             type="button"
             onClick={handleStart}
             className={`${bezelBtn} border-accent/40 text-accent`}
-            title="START: Advance stage (En route -> Primer -> Live)"
+            title="START: Advance stage (Baseline -> Primer -> Live Interview)"
           >
             START
           </button>
@@ -283,7 +290,7 @@ export default function WatchMirror({ telemetry, stage, events, pacerActive }) {
             type="button"
             onClick={handleBack}
             className={bezelBtn}
-            title="BACK: Finish & Save (.FIT) when Live"
+            title="BACK: Finish Interview when Live"
           >
             BACK
           </button>
@@ -300,8 +307,8 @@ export default function WatchMirror({ telemetry, stage, events, pacerActive }) {
           }`}
         >
           {gate === 'SPEAKING'
-            ? '5 Motion/Cardio Active · 3 Optical/Mag Gated'
-            : 'All 8 Garmin Sensors Active (Optical + Orientation Trusted)'}
+            ? '4 Motion/Cardio Active · 2 Optical Gated'
+            : 'All 6 Garmin Sensors Active (Optical Trusted)'}
         </span>
       </div>
     </div>
