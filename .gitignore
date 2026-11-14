@@ -1,0 +1,10 @@
+# deps / build output
+node_modules/
+dashboard/dist/
+backend/.venv/
+__pycache__/
+watch-app/bin/
+# signing keys never go in the repo
+*.der
+*.pem
+.DS_Store
