@@ -10,6 +10,24 @@ const word = (key, sc) => {
   return scoreWord(sc)
 }
 
+/**
+ * Horizontal gradient stops so each stretch of the sparkline takes the colour of
+ * its own score: the line turns amber/red exactly where the reading went wrong.
+ */
+function scoreStops(key, rows, data) {
+  const start = rows.length - data.length
+  const n = data.length
+  let prev = null
+  const out = []
+  for (let i = 0; i < n; i++) {
+    const at = start + i
+    const sc = data[i][key] == null ? prev : score(key, rows.slice(Math.max(0, at - 15), at + 1))
+    prev = sc ?? prev
+    out.push({ offset: n > 1 ? i / (n - 1) : 0, color: scoreColor(prev) })
+  }
+  return out
+}
+
 function Tile({ s, rows, gate }) {
   const v = last(rows, s.key)
   const gated = ['rmssd', 'spo2', 'heading'].includes(s.key)
@@ -17,9 +35,10 @@ function Tile({ s, rows, gate }) {
   const sc = score(s.key, rows)
   const col = scoreColor(sc)
   const data = rows.slice(-90)
+  const stops = scoreStops(s.key, rows, data)
+  const gid = `score-${s.key}`
   return (
-    <div className="panel relative overflow-visible px-3 pt-2.5 pb-0">
-      <span className="absolute inset-y-2 left-0 w-[3px] rounded-r transition-colors duration-500" style={{ background: col }} />
+    <div className="panel relative overflow-hidden px-3 pt-2.5 pb-0">
       <div className="flex items-center justify-between gap-1.5">
         <div className="flex items-center gap-1.5">
           <span className="text-[12px] font-medium text-ink">{s.name}</span>
@@ -50,10 +69,15 @@ function Tile({ s, rows, gate }) {
       <div className="-mx-3 h-11">
         <ResponsiveContainer width="100%" height="100%">
           <AreaChart data={data} margin={{ top: 4, right: 0, bottom: 0, left: 0 }}>
+            <defs>
+              <linearGradient id={gid} x1="0" y1="0" x2="1" y2="0">
+                {stops.map((st, i) => <stop key={i} offset={st.offset} stopColor={st.color} />)}
+              </linearGradient>
+            </defs>
             <YAxis hide domain={s.domain} allowDataOverflow />
             {s.threshold && <ReferenceLine y={s.threshold} stroke={C.faint} strokeDasharray="3 3" />}
-            <Area type="monotone" dataKey={s.key} stroke={C.accent} strokeWidth={1.4} fill={C.accentSoft}
-              fillOpacity={0.7} isAnimationActive={false} connectNulls dot={false} />
+            <Area type="monotone" dataKey={s.key} stroke={`url(#${gid})`} strokeWidth={1.8} fill={`url(#${gid})`}
+              fillOpacity={0.22} isAnimationActive={false} connectNulls dot={false} />
           </AreaChart>
         </ResponsiveContainer>
       </div>

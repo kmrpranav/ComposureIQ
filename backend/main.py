@@ -127,6 +127,9 @@ PHASE_LABEL = {"IDLE": "En route", "PRIMER": "Primer", "LIVE": "Live", "DONE": "
 
 def phase_reason(prev: str, new: str, x: dict) -> str:
     """Plain-language reason for a stage change, inferred from the sample that caused it."""
+    if len(S.telemetry) <= 1:
+        return (f"The watch was already in {PHASE_LABEL.get(new, new)} when this session started "
+                "(the dashboard was reset, but the watch keeps its own stage).")
     if new == "PRIMER":
         if S.geofence_override:
             return "Presenter pressed Venue arrival (geofence override), so the breathing primer started."

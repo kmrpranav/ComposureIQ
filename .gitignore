@@ -1,7 +1,8 @@
-# deps / build output
-node_modules/
+# deps / build output (real folders are *.nosync so iCloud Desktop sync skips them)
+*.nosync
+node_modules
 dashboard/dist/
-backend/.venv/
+backend/.venv
 __pycache__/
 watch-app/bin/
 # signing keys never go in the repo
