@@ -1,6 +1,7 @@
 import { fmtT, post } from '../hooks'
 import { last } from '../sensors'
 import { PHASES } from './Navbar'
+import WatchMirror from './WatchMirror'
 
 const STAGE_INFO = {
   IDLE: {
@@ -23,7 +24,7 @@ const STAGE_INFO = {
 
 const PACER_KINDS = new Set(['pacer', 'pacer_decision', 'pacer_debug'])
 
-export default function StagePanel({ telemetry, events, stage }) {
+export default function StagePanel({ telemetry, events, stage, pacerActive }) {
   const row = telemetry[telemetry.length - 1]
   const phase = row?.phase ?? stage?.phase ?? 'IDLE'
   const idx = PHASES.findIndex((p) => p.id === phase)
@@ -37,21 +38,30 @@ export default function StagePanel({ telemetry, events, stage }) {
 
   return (
     <div className="panel flex flex-col p-3">
-      <div className="text-[13px] font-semibold text-ink">Stage & pacer</div>
+      <WatchMirror telemetry={telemetry} stage={stage} events={events} pacerActive={pacerActive} />
+
+      <div className="flex items-center justify-between">
+        <div className="text-[13px] font-semibold text-ink">Stage & pacer</div>
+        <span className="font-mono text-[10px] text-faint">click stage to jump</span>
+      </div>
 
       {/* Stage stepper with reasoning */}
       <ol className="mt-2.5 space-y-1.5">
         {PHASES.map((p, i) => {
           const cur = i === idx, done = i < idx
           return (
-            <li key={p.id} className={`rounded-md border px-2.5 py-2 transition ${cur ? 'border-accent/40 bg-accent-soft/60' : 'border-transparent'}`}>
-              <div className="flex items-center gap-2">
+            <li key={p.id} className={`rounded-md border px-2.5 py-2 transition ${cur ? 'border-accent/40 bg-accent-soft/60' : 'border-transparent hover:border-line hover:bg-sunk'}`}>
+              <button
+                type="button"
+                onClick={() => post('/api/control', { action: 'set_phase', phase: p.id })}
+                className="flex w-full items-center gap-2 text-left"
+              >
                 <span className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-full font-mono text-[9px] ${
                   cur ? 'bg-accent text-white' : done ? 'bg-line-strong text-white' : 'border border-line-strong text-faint'}`}>
                   {done ? '✓' : i + 1}
                 </span>
                 <span className={`text-[12px] font-medium ${cur ? 'text-accent' : done ? 'text-muted' : 'text-faint'}`}>{p.label}</span>
-              </div>
+              </button>
               {cur && (
                 <div className="mt-1.5 space-y-1.5 pl-6 text-[11.5px] leading-snug">
                   <p className="text-ink/85">{STAGE_INFO[p.id].does}</p>

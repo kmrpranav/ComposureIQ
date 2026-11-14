@@ -427,6 +427,15 @@ class Engine {
         stress = st != null ? st.toFloat() : 0.0;
         var go = data["geofence_override"];
         geofenceOverride = go != null && go;
+        var po = data["phase_override"];
+        if (po instanceof String) {
+            var poStr = po as String;
+            if (!poStr.equals("")) {
+                if (poStr.equals("PRIMER")) { geofenceOverride = true; }
+                if (poStr.equals("IDLE")) { geofenceOverride = false; }
+                setPhase(poStr);
+            }
+        }
         var fp = data["force_pacer"];
         if (fp != null && fp) { forcePacer(); }
         var ev = data["calendar_event"];

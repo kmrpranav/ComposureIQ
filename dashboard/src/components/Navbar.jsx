@@ -1,3 +1,4 @@
+import { useEffect, useRef, useState } from 'react'
 import { fmtT, post } from '../hooks'
 import { SCALE_GRADIENT, last, score, scoreColor } from '../sensors'
 import InfoTip from './InfoTip'
@@ -9,6 +10,77 @@ export const PHASES = [
   { id: 'DONE', label: 'Debrief' },
 ]
 const HOLD_MS = 2500
+
+const PRESET_QUESTIONS = [
+  'Tell me about a time a production deployment failed and how you handled the outage?',
+  'Why should we hire you over candidates with twice as much systems experience?',
+  'Walk me through your biggest architectural mistake and what it cost the team?',
+  'What is your target compensation, and why do you think you are worth that?',
+  'How would you redesign our core telemetry pipeline if latency doubled overnight?',
+]
+
+const DEMO_STEPS = [
+  {
+    at: 0,
+    title: '1/7 · En route (GPS Geofence Watch)',
+    note: 'Approaching Platform Calgary. Haversine distance is tracked silently with zero alerts.',
+    run: async () => {
+      await post('/api/control', { action: 'reset' })
+      await post('/api/control', { action: 'set_phase', phase: 'IDLE' })
+    },
+  },
+  {
+    at: 5,
+    title: '2/7 · Venue Arrival (<100m Geofence → Primer)',
+    note: 'Entered 100 m geofence. Watch launches 10s physiological sigh haptics & monitors HRV recovery.',
+    run: () => post('/api/control', { action: 'venue_arrival' }),
+  },
+  {
+    at: 15,
+    title: '3/7 · Entering Live Interview (Stealth Analog Face)',
+    note: 'Watch dims to minimalist analog hands so an interviewer never sees distracting charts.',
+    run: () => post('/api/control', { action: 'set_phase', phase: 'LIVE' }),
+  },
+  {
+    at: 19,
+    title: '4/7 · Judge Asks Tough Behavioral Question',
+    note: 'Question flagged "Q" in transcript; sympathetic stress rises before you respond.',
+    run: () => post('/api/control', {
+      action: 'stress_question',
+      text: 'Tell me about a time a production deployment failed and how you handled the outage?',
+    }),
+  },
+  {
+    at: 22,
+    title: '5/7 · Speaking Gate Opens (Haptics Muted)',
+    note: '6s spoken answer: 25Hz accel σ² > 2,500 mg² mutes haptics while logging HR, fidget & gyro.',
+    run: () => post('/api/control', {
+      action: 'simulate_answer',
+      duration: 6,
+      text: 'We rolled back the canary within two minutes, isolated the schema migration lock, and added automated pre-flight checks.',
+    }),
+  },
+  {
+    at: 28,
+    title: '6/7 · 2.5s Stillness Countdown → 60-BPM Tactile Pacer',
+    note: 'Speech stopped. Watch holds 2.5s stillness, flips to Listening Gate, and fires two 60-BPM pulses.',
+  },
+  {
+    at: 34,
+    title: '6b/7 · Spike Correlation & Recovery',
+    note: 'Evaluating multi-sensor spike callout (ΔHR, fidget, gyro jerk, SpO₂) and settling baseline.',
+    run: async () => {
+      await post('/api/control', { action: 'evaluate_now' })
+      await post('/api/control', { action: 'calm' })
+    },
+  },
+  {
+    at: 45,
+    title: '7/7 · Session Saved (.FIT) → Post-Interview Debrief',
+    note: 'Composure & Fidget developer fields saved. Inspect pacer efficacy, coaching & 4-session trend.',
+    run: () => post('/api/control', { action: 'set_phase', phase: 'DONE' }),
+  },
+]
 
 /** Big, unmissable speaking / listening / pacer state. */
 function GateIndicator({ row, pacerActive, phase }) {
@@ -56,7 +128,7 @@ function GateIndicator({ row, pacerActive, phase }) {
   )
 }
 
-/** Composure / Fidget chip on the red → green index. */
+/** Composure / Fidget chip on the red -> green index. */
 function IndexChip({ k, name, caption, rows }) {
   const v = last(rows, k)
   const sc = score(k, rows)
@@ -92,32 +164,132 @@ function Status({ dot, children }) {
   )
 }
 
-function PresenterBar({ mic, forcePending }) {
-  const btn = 'rounded-md border border-line bg-card px-3 py-1.5 text-[12px] text-ink transition hover:border-line-strong hover:bg-sunk active:translate-y-px disabled:opacity-50'
+function PresenterBar({ mic, forcePending, demo, onStartDemo, onStopDemo }) {
+  const [selectedQ, setSelectedQ] = useState(PRESET_QUESTIONS[0])
+  const [customQ, setCustomQ] = useState('')
+  const btn = 'rounded-md border border-line bg-card px-2.5 py-1.5 text-[11.5px] text-ink transition hover:border-line-strong hover:bg-sunk active:translate-y-px disabled:opacity-50'
+
+  const askQuestion = () => {
+    const text = selectedQ === '__custom__' ? customQ.trim() : selectedQ
+    if (!text) return
+    post('/api/control', { action: 'stress_question', text })
+  }
+
   return (
-    <div className="flex flex-wrap items-center gap-2">
-      <button onClick={mic.on ? mic.stop : mic.start}
-        className={`flex items-center gap-2 rounded-md px-3 py-1.5 text-[12px] font-medium transition active:translate-y-px ${
-          mic.on ? 'border border-accent bg-accent-soft text-accent' : 'bg-accent text-white hover:bg-accent/90'}`}>
-        <span className={`h-1.5 w-1.5 rounded-full ${mic.on ? (mic.speaking ? 'bg-alert' : 'bg-accent/40') : 'bg-white/70'}`} />
-        {mic.on ? 'Mic on' : 'Start mic'}
-        {mic.on && (
-          <span className="h-1 w-12 overflow-hidden rounded-full bg-white">
-            <span className="block h-full bg-accent transition-[width] duration-75" style={{ width: `${mic.level * 100}%` }} />
-          </span>
+    <div className="space-y-2">
+      <div className="flex flex-wrap items-center gap-2">
+        {/* Mic button */}
+        <button
+          type="button"
+          onClick={mic.on ? mic.stop : mic.start}
+          className={`flex items-center gap-2 rounded-md px-3 py-1.5 text-[12px] font-medium transition active:translate-y-px ${
+            mic.on ? 'border border-accent bg-accent-soft text-accent' : 'bg-accent text-white hover:bg-accent/90'
+          }`}
+        >
+          <span className={`h-1.5 w-1.5 rounded-full ${mic.on ? (mic.speaking ? 'bg-alert' : 'bg-accent/40') : 'bg-white/70'}`} />
+          {mic.on ? 'Mic on' : 'Start mic'}
+          {mic.on && (
+            <span className="h-1 w-12 overflow-hidden rounded-full bg-white">
+              <span className="block h-full bg-accent transition-[width] duration-75" style={{ width: `${mic.level * 100}%` }} />
+            </span>
+          )}
+        </button>
+
+        {/* 1-Click Auto-Demo */}
+        {demo.running ? (
+          <button
+            type="button"
+            onClick={onStopDemo}
+            className="flex items-center gap-1.5 rounded-md border border-alert bg-alert-soft px-3 py-1.5 text-[12px] font-medium text-alert transition hover:bg-alert-soft/80"
+          >
+            <span>■ Stop Demo</span>
+            <span className="font-mono text-[10.5px]">({demo.elapsed}s / 45s)</span>
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={onStartDemo}
+            className="rounded-md border border-accent/50 bg-accent-soft px-3 py-1.5 text-[12px] font-medium text-accent transition hover:bg-accent hover:text-white active:translate-y-px"
+          >
+            ▶ Auto-Demo (60s)
+          </button>
         )}
-      </button>
-      <span className="mx-1 h-5 w-px bg-line" />
-      <span className="label mr-1">Stage</span>
-      <button className={btn} onClick={() => post('/api/control', { action: 'venue_arrival' })}>Venue arrival</button>
-      <button className={btn} onClick={() => post('/api/control', { action: 'stress_question' })}>High-stress question</button>
-      <button className={btn} disabled={forcePending} onClick={() => post('/api/control', { action: 'force_pacer' })}>
-        {forcePending ? 'Pacer sent…' : 'Force pacer'}
-      </button>
-      <button className={btn} onClick={() => post('/api/control', { action: 'calm' })}>Calm</button>
-      <button className={`${btn} text-muted`} onClick={() => confirm('Reset the session?') && post('/api/control', { action: 'reset' })}>Reset</button>
-      {mic.error && <span className="text-[11px] text-alert">{mic.error}</span>}
-      {!mic.speechSupported && <span className="text-[11px] text-note">Transcript needs Chrome (Web Speech API)</span>}
+
+        <span className="mx-0.5 h-5 w-px bg-line" />
+        <span className="label">Question</span>
+
+        <select
+          value={selectedQ}
+          onChange={(e) => setSelectedQ(e.target.value)}
+          className="max-w-[270px] truncate rounded-md border border-line bg-card px-2 py-1.5 text-[11.5px] text-ink focus:border-accent focus:outline-none"
+        >
+          {PRESET_QUESTIONS.map((q) => (
+            <option key={q} value={q}>{q}</option>
+          ))}
+          <option value="__custom__">Custom question…</option>
+        </select>
+
+        {selectedQ === '__custom__' && (
+          <input
+            type="text"
+            value={customQ}
+            onChange={(e) => setCustomQ(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && askQuestion()}
+            placeholder="Type interview question…"
+            className="w-52 rounded-md border border-line bg-card px-2.5 py-1.5 text-[11.5px] text-ink focus:border-accent focus:outline-none"
+          />
+        )}
+
+        <button type="button" className={btn} onClick={askQuestion}>Ask Question</button>
+        <button
+          type="button"
+          className="rounded-md border border-note/40 bg-note-soft px-2.5 py-1.5 text-[11.5px] font-medium text-note transition hover:border-note active:translate-y-px"
+          onClick={() => post('/api/control', { action: 'simulate_answer', duration: 6 })}
+        >
+          Simulate Answer → Pacer
+        </button>
+
+        <span className="mx-0.5 h-5 w-px bg-line" />
+        <span className="label">Stage</span>
+
+        <button type="button" className={btn} onClick={() => post('/api/control', { action: 'venue_arrival' })}>Venue arrival</button>
+        <button type="button" className={btn} disabled={forcePending} onClick={() => post('/api/control', { action: 'force_pacer' })}>
+          {forcePending ? 'Pacer sent…' : 'Force pacer'}
+        </button>
+        <button type="button" className={btn} onClick={() => post('/api/control', { action: 'calm' })}>Calm</button>
+        <button type="button" className={btn} onClick={() => post('/api/control', { action: 'set_phase', phase: 'DONE' })}>Debrief (.FIT)</button>
+        <button
+          type="button"
+          className={`${btn} text-muted`}
+          onClick={() => {
+            if (demo.running) onStopDemo()
+            if (confirm('Reset the session?')) post('/api/control', { action: 'reset' })
+          }}
+        >
+          Reset
+        </button>
+
+        {mic.error && <span className="text-[11px] text-alert">{mic.error}</span>}
+        {mic.sttNote && <span className="text-[11px] text-accent">{mic.sttNote}</span>}
+      </div>
+
+      {/* Auto-Demo live narration bar */}
+      {demo.step && (
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-accent/35 bg-accent-soft/70 px-3 py-1.5 text-[11.5px]">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="rounded bg-accent px-1.5 py-0.5 font-mono text-[9.5px] font-semibold uppercase tracking-wider text-white">
+              {demo.running ? 'Auto-Demo' : 'Demo Complete'}
+            </span>
+            <span className="font-semibold text-ink">{demo.step.title}</span>
+            <span className="text-muted">— {demo.step.note}</span>
+          </div>
+          {!demo.running && (
+            <button type="button" onClick={onStopDemo} className="font-mono text-[10px] text-muted hover:text-ink">
+              dismiss
+            </button>
+          )}
+        </div>
+      )}
     </div>
   )
 }
@@ -127,6 +299,53 @@ export default function Navbar({ spine, mic, pacerActive }) {
   const row = telemetry[telemetry.length - 1]
   const phase = row?.phase ?? stage?.phase ?? 'IDLE'
   const source = row?.source
+
+  const [demo, setDemo] = useState({ running: false, elapsed: 0, step: null })
+  const timersRef = useRef({ timeouts: [], ticker: null })
+
+  const clearDemoTimers = () => {
+    timersRef.current.timeouts.forEach(clearTimeout)
+    if (timersRef.current.ticker) clearInterval(timersRef.current.ticker)
+    timersRef.current = { timeouts: [], ticker: null }
+  }
+
+  const stopDemo = () => {
+    clearDemoTimers()
+    setDemo({ running: false, elapsed: 0, step: null })
+  }
+
+  const startDemo = () => {
+    clearDemoTimers()
+    const startedAt = Date.now()
+    setDemo({ running: true, elapsed: 0, step: DEMO_STEPS[0] })
+
+    const timeouts = DEMO_STEPS.map((st) =>
+      setTimeout(() => {
+        st.run?.()
+        setDemo((prev) => ({ ...prev, step: st }))
+      }, st.at * 1000),
+    )
+
+    timeouts.push(
+      setTimeout(() => {
+        if (timersRef.current.ticker) clearInterval(timersRef.current.ticker)
+        timersRef.current.ticker = null
+        setDemo((prev) => ({ ...prev, running: false, elapsed: 45 }))
+      }, 46000),
+    )
+
+    const ticker = setInterval(() => {
+      setDemo((prev) => ({
+        ...prev,
+        elapsed: Math.min(45, Math.floor((Date.now() - startedAt) / 1000)),
+      }))
+    }, 500)
+
+    timersRef.current = { timeouts, ticker }
+  }
+
+  useEffect(() => () => clearDemoTimers(), [])
+
   return (
     <header className="sticky top-0 z-30 border-b border-line bg-paper/95 shadow-[0_1px_0_rgba(30,42,54,0.03)] backdrop-blur">
       <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-3 px-4 pt-3">
@@ -140,7 +359,18 @@ export default function Navbar({ spine, mic, pacerActive }) {
               {PHASES.map((p, i) => (
                 <li key={p.id} className="flex items-center gap-1">
                   {i > 0 && <span className="text-line-strong">›</span>}
-                  <span className={p.id === phase ? 'rounded bg-accent-soft px-1.5 py-0.5 font-medium text-accent' : 'text-faint'}>{p.label}</span>
+                  <button
+                    type="button"
+                    onClick={() => post('/api/control', { action: 'set_phase', phase: p.id })}
+                    title={`Switch stage to ${p.label}`}
+                    className={`rounded px-1.5 py-0.5 transition ${
+                      p.id === phase
+                        ? 'bg-accent-soft font-medium text-accent'
+                        : 'text-faint hover:bg-sunk hover:text-ink'
+                    }`}
+                  >
+                    {i + 1}. {p.label}
+                  </button>
                 </li>
               ))}
             </ol>
@@ -161,7 +391,13 @@ export default function Navbar({ spine, mic, pacerActive }) {
         </div>
       </div>
       <div className="px-4 pt-2.5 pb-3">
-        <PresenterBar mic={mic} forcePending={!!stage?.force_pending} />
+        <PresenterBar
+          mic={mic}
+          forcePending={!!stage?.force_pending}
+          demo={demo}
+          onStartDemo={startDemo}
+          onStopDemo={stopDemo}
+        />
       </div>
     </header>
   )

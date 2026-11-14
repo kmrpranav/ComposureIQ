@@ -1,4 +1,4 @@
-// Chart palette — one blue, neutrals, and a single warm alert colour.
+// Chart palette — one blue, neutrals, muted green, and a single warm alert colour.
 export const C = {
   accent: '#2f5d8a',
   accentSoft: '#e6eef6',
@@ -9,6 +9,7 @@ export const C = {
   grid: '#efebe3',
   alert: '#b04a3f',
   note: '#c08a2e',
+  good: '#3f8a5a',
 }
 
 // What each reading means. `what` = the measurement, `why` = how ComposureIQ uses it.
@@ -77,15 +78,64 @@ export const INFO = {
 
 // The 8-sensor matrix.
 export const SENSORS = [
-  { key: 'hr', name: 'Heart Rate', sub: '1 Hz', unit: 'bpm', digits: 0, domain: [55, 115] },
-  { key: 'rmssd', name: 'HRV', sub: 'RMSSD · when still', unit: 'ms', digits: 0, domain: [10, 90] },
-  { key: 'spo2', name: 'Pulse Ox', sub: 'when still', unit: '%', digits: 1, domain: [93, 100] },
-  { key: 'temp', name: 'Skin Temp', sub: 'wrist', unit: '°C', digits: 1, domain: [30, 35] },
-  { key: 'accel_var', name: 'Motion', sub: 'accel σ² · 25 Hz', unit: 'mg²', digits: 0, domain: [0, 8000], threshold: 2500 },
-  { key: 'gyro_mag', name: 'Rotation', sub: 'gyro · 25 Hz', unit: '°/s', digits: 0, domain: [0, 200] },
-  { key: 'heading', name: 'Compass', sub: 'when still', unit: '°', digits: 0, domain: [120, 240] },
-  { key: 'distance_m', name: 'Venue Distance', sub: 'GPS geofence', unit: 'm', digits: 0, domain: [0, 500], threshold: 100 },
+  {
+    key: 'hr', num: 1, name: 'Heart Rate', shortName: 'HR', sub: '1 Hz', unit: 'bpm', digits: 0,
+    domain: [55, 115], api: 'Sensor.Info.heartRate', role: 'Cardiovascular spike & pacer trigger',
+    gated: false, thresholdDelta: 15, thresholdLabel: '+15 bpm pacer',
+  },
+  {
+    key: 'rmssd', num: 2, name: 'HRV', shortName: 'HRV', sub: 'RMSSD · when still', unit: 'ms', digits: 0,
+    domain: [10, 90], api: 'heartBeatIntervals · RMSSD', role: 'Vagal recovery in listening pauses',
+    gated: true, threshold: 55, thresholdLabel: '55 ms target',
+  },
+  {
+    key: 'spo2', num: 3, name: 'Pulse Ox', shortName: 'SpO₂', sub: 'when still', unit: '%', digits: 1,
+    domain: [93, 100], api: 'Sensor.Info.oxygenSaturation', role: "Speaker's apnea breath-hold check",
+    gated: true, threshold: 96, thresholdLabel: '96% apnea',
+  },
+  {
+    key: 'temp', num: 4, name: 'Skin Temp', shortName: 'Temp', sub: 'wrist', unit: '°C', digits: 1,
+    domain: [30, 35], api: 'Sensor.Info.temperature', role: 'Pre-event vasoconstriction (cold hands)',
+    gated: false,
+  },
+  {
+    key: 'accel_var', num: 5, name: 'Motion', shortName: 'Motion σ²', sub: 'accel σ² · 25 Hz', unit: 'mg²', digits: 0,
+    domain: [0, 8000], api: 'accelerometerData · 25Hz + Pitch/Roll', role: 'Speaking vs Listening Stillness Gate',
+    gated: false, threshold: 2500, thresholdLabel: '2,500 mg² gate',
+  },
+  {
+    key: 'gyro_mag', num: 6, name: 'Rotation', shortName: 'Gyro', sub: 'gyro · 25 Hz', unit: '°/s', digits: 0,
+    domain: [0, 200], api: 'gyroscopeData · 25Hz 3-Axis', role: 'Smooth gestures vs nervous wrist jerk',
+    gated: false,
+  },
+  {
+    key: 'heading', num: 7, name: 'Compass', shortName: 'Compass', sub: 'when still', unit: '°', digits: 0,
+    domain: [120, 240], api: 'Sensor.Info.heading · Mag', role: 'Posture & chair-swivel stability',
+    gated: true,
+  },
+  {
+    key: 'distance_m', num: 8, name: 'Venue Distance', shortName: 'GPS Dist', sub: 'GPS geofence', unit: 'm', digits: 0,
+    domain: [0, 500], api: 'Toybox.Position · Haversine', role: '100m venue geofence auto-primer',
+    gated: false, threshold: 100, thresholdLabel: '100 m geofence',
+  },
 ]
+
+export const ALL_CHANNELS = [
+  { key: 'hr', name: 'Heart Rate', shortName: 'HR', unit: 'bpm', domain: ['dataMin - 3', 'dataMax + 3'], thresholdDelta: 15, thresholdLabel: '+15 bpm pacer' },
+  { key: 'rmssd', name: 'HRV', shortName: 'HRV', unit: 'ms', domain: [0, 'dataMax + 5'], threshold: 55, thresholdLabel: '55 ms target' },
+  { key: 'spo2', name: 'Pulse Ox', shortName: 'SpO₂', unit: '%', domain: [93, 100], threshold: 96, thresholdLabel: '96% apnea' },
+  { key: 'temp', name: 'Skin Temp', shortName: 'Temp', unit: '°C', domain: [30, 35.5] },
+  { key: 'accel_var', name: 'Motion σ²', shortName: 'Motion σ²', unit: 'mg²', domain: [0, 'dataMax + 500'], threshold: 2500, thresholdLabel: '2,500 mg² gate' },
+  { key: 'gyro_mag', name: 'Rotation', shortName: 'Gyro', unit: '°/s', domain: [0, 'dataMax + 10'] },
+  { key: 'heading', name: 'Compass', shortName: 'Compass', unit: '°', domain: [120, 240] },
+  { key: 'distance_m', name: 'GPS Dist', shortName: 'GPS Dist', unit: 'm', domain: [0, 'dataMax + 25'], threshold: 100, thresholdLabel: '100 m geofence' },
+  { key: 'fidget_index', name: 'Fidget', shortName: 'Fidget', unit: '', domain: [0, 100] },
+  { key: 'composure_index', name: 'Composure', shortName: 'Composure', unit: '', domain: [0, 100] },
+]
+
+export const CORE_CHANNELS = ['hr', 'fidget_index', 'gyro_mag', 'spo2', 'rmssd', 'composure_index']
+export const SENSOR_8_CHANNELS = ['hr', 'rmssd', 'spo2', 'temp', 'accel_var', 'gyro_mag', 'heading', 'distance_m']
+export const ALL_10_CHANNELS = ['hr', 'rmssd', 'spo2', 'temp', 'accel_var', 'gyro_mag', 'heading', 'distance_m', 'fidget_index', 'composure_index']
 
 /** Last non-null value of a key. */
 export const last = (rows, key) => {

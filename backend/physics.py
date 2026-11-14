@@ -50,25 +50,41 @@ def _approach(cur: float, target: float, rate: float) -> float:
 
 
 def step(ps: PhysicsState, now: float, speaking: bool, stress: float,
-         geofence_override: bool, force_pacer: bool) -> dict:
+         geofence_override: bool, force_pacer: bool, phase_override: str | None = None) -> dict:
     """Advance one 1 Hz tick and return a telemetry payload shaped like the watch's."""
     ps.t += 1.0
     rnd = random.Random(int(now * 10))
 
+    if phase_override in ("IDLE", "PRIMER", "LIVE", "DONE"):
+        ps.phase = phase_override
+        if phase_override == "PRIMER":
+            ps.primer_started = now
+            ps.lat, ps.lon = CALGARY[0] + 0.0002, CALGARY[1]
+        elif phase_override == "IDLE":
+            ps.lat, ps.lon = CALGARY[0] + 0.004, CALGARY[1]
+            ps.primer_started = None
+
     # --- GPS: walk toward the venue; override teleports inside the fence.
-    if geofence_override:
+    if geofence_override and ps.phase != "IDLE":
         ps.lat, ps.lon = CALGARY[0] + 0.0002, CALGARY[1]
     elif ps.phase == "IDLE":
-        ps.lat = _approach(ps.lat, CALGARY[0], 0.02)
+        if geofence_override:
+            ps.lat, ps.lon = CALGARY[0] + 0.0002, CALGARY[1]
+        else:
+            ps.lat = _approach(ps.lat, CALGARY[0], 0.02)
     dist = haversine_m(ps.lat, ps.lon, *CALGARY)
 
-    # --- Phase machine (mirrors the watch).
-    if ps.phase == "IDLE" and dist < 100:
-        ps.phase, ps.primer_started = "PRIMER", now
-    elif ps.phase == "PRIMER" and (now - (ps.primer_started or now) > 90 or ps.rmssd > 55 and now - ps.primer_started > 20):
-        ps.phase = "LIVE"
-    if speaking and ps.phase in ("IDLE", "PRIMER"):
-        ps.phase = "LIVE"
+    # --- Phase machine (mirrors the watch). DONE holds steady until reset/override.
+    if ps.phase != "DONE":
+        if ps.phase == "IDLE" and dist < 100:
+            ps.phase, ps.primer_started = "PRIMER", now
+        elif ps.phase == "PRIMER" and (
+            now - (ps.primer_started or now) > 90
+            or (ps.rmssd > 55 and now - (ps.primer_started or now) > 20)
+        ):
+            ps.phase = "LIVE"
+        if speaking and ps.phase in ("IDLE", "PRIMER"):
+            ps.phase = "LIVE"
 
     # --- Motion: speaking produces gesture variance; stress adds fidget jitter.
     if speaking:

@@ -8,4 +8,7 @@ watch-app/bin/
 # signing keys never go in the repo
 *.der
 *.pem
+developer_key
+SdkManager.app/
+skills-lock.json
 .DS_Store
