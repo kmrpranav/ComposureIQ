@@ -40,6 +40,7 @@ class Stage:
         self.stress = 0.0
         self.geofence_override = False
         self.force_pacer = False
+        self.force_requested_at = None
         self.last_watch = 0.0
         self.phase = "IDLE"
         self.gate = "LISTENING"
@@ -87,6 +88,7 @@ class Stage:
             "mic_level": round(self.mic_level, 3),
             "phase": self.phase,
             "gate": self.gate,
+            "force_pending": self.force_requested_at is not None,
             "t": self.t(),
         }
 
@@ -120,6 +122,53 @@ async def log_event(kind: str, label: str, **extra):
     await hub.broadcast({"type": "event", "data": ev})
 
 
+PHASE_LABEL = {"IDLE": "En route", "PRIMER": "Primer", "LIVE": "Live", "DONE": "Debrief"}
+
+
+def phase_reason(prev: str, new: str, x: dict) -> str:
+    """Plain-language reason for a stage change, inferred from the sample that caused it."""
+    if new == "PRIMER":
+        if S.geofence_override:
+            return "Presenter pressed Venue arrival (geofence override), so the breathing primer started."
+        d = x.get("distance_m")
+        return (f"You are {d:.0f} m from the venue (inside the 100 m geofence) and the interview starts "
+                "within 15 min, so the breathing primer started.") if d is not None else \
+            "Arrived inside the venue geofence within 15 min of the interview."
+    if new == "LIVE":
+        if prev == "PRIMER":
+            if S.speaking:
+                return "Voice detected during the primer, so it ended early and Live began."
+            rm = x.get("rmssd")
+            if rm is not None and rm >= 55:
+                return f"HRV recovered to {rm:.0f} ms (target 55 ms or more, after at least 20 s of breathing)."
+            return "Primer reached its 90 s limit."
+        return "Voice detected before venue arrival, so Live started directly."
+    if new == "DONE":
+        return "Session finished and saved to the watch's .FIT file."
+    return "Session reset."
+
+
+async def pacer_decision(x: dict):
+    """Explain why the pacer did or did not fire when an answer ended."""
+    peak = x.get("peak_hr")
+    if peak is None:
+        hs = [r["hr"] for r in reversed(S.telemetry[:-1]) if r.get("gate") == "SPEAKING" and r.get("hr") is not None][:60]
+        peak = max(hs) if hs else x.get("hr", 0)
+    base = x.get("baseline_hr") or physics.BASELINE_HR
+    delta = peak - base
+    fired = bool(x.get("pacer_fired"))
+    if fired:
+        reason = (f"Answer ended. HR peaked at {peak:.0f} bpm, {delta:+.0f} over your {base:.0f} bpm baseline "
+                  f"(limit +{physics.PACER_HR_DELTA:.0f}), so the pacer fired once you had been still for 2.5 s.")
+    elif x.get("phase") != "LIVE":
+        reason = "Pacer skipped: it only runs during the Live stage."
+    else:
+        reason = (f"Pacer skipped: HR peaked at {peak:.0f} bpm, only {delta:+.0f} over your {base:.0f} bpm "
+                  f"baseline. It needs more than +{physics.PACER_HR_DELTA:.0f}.")
+    await log_event("pacer_decision", "Pacer fired" if fired else "Pacer skipped", fired=fired,
+                    peak=round(peak, 1), baseline=round(base, 1), delta=round(delta, 1), reason=reason)
+
+
 async def ingest(sample: dict):
     sample["t"] = S.t()
     prev_phase, prev_gate = S.phase, S.gate
@@ -128,11 +177,18 @@ async def ingest(sample: dict):
     S.telemetry.append(sample)
     await hub.broadcast({"type": "telemetry", "data": sample})
     if S.phase != prev_phase:
-        await log_event("phase", f"Phase → {S.phase}")
+        await log_event("phase", f"Stage: {PHASE_LABEL.get(S.phase, S.phase)}", phase=S.phase,
+                        reason=phase_reason(prev_phase, S.phase, sample))
     if S.gate != prev_gate:
         await log_event("gate", f"{S.gate.title()} gate")
+        if prev_gate == "SPEAKING" and S.gate == "LISTENING" and not sample.get("pacer_forced"):
+            await pacer_decision(sample)
     if sample.get("pacer_fired"):
-        await log_event("pacer", "60-BPM listening pacer fired")
+        forced = bool(sample.get("pacer_forced")) or S.force_requested_at is not None
+        if forced:
+            S.force_requested_at = None
+        await log_event("pacer", "60-BPM pacer fired" + (" (forced)" if forced else ""), forced=forced,
+                        reason="Forced from the presenter bar or watch menu." if forced else None)
 
 
 # ---------------------------------------------------------------- watch API
@@ -149,6 +205,8 @@ async def telemetry(body: Telemetry):
     resp = S.stage_response()
     if S.force_pacer:
         S.force_pacer = False  # one-shot, consumed by the watch
+        await log_event("pacer_debug", "Force pacer delivered to watch",
+                        reason="Sent in this 1 Hz sync reply. The watch reports the pulse on its next sync.")
     return resp
 
 
@@ -216,7 +274,10 @@ async def control(body: Control):
         await log_event("control", "High-stress question injected")
     elif a == "force_pacer":
         S.force_pacer = True
-        await log_event("control", "Forced listening pacer")
+        S.force_requested_at = time.time()
+        await log_event("pacer_debug", "Force pacer requested",
+                        reason=("Queued for the watch's next sync." if S.watch_connected
+                                else "No watch connected, so the backend simulator will fire it."))
     elif a == "calm":
         S.stress = 0.0
         await log_event("control", "Stress reset")
@@ -261,6 +322,11 @@ async def spine_loop():
         await asyncio.sleep(1.0)
         try:
             S.stress = max(0.0, S.stress - STRESS_DECAY_PER_S)
+            if S.force_requested_at and time.time() - S.force_requested_at > 5:
+                S.force_requested_at = None
+                await log_event("pacer_debug", "Force pacer not confirmed",
+                                reason=("No pacer report within 5 s. Check the watch is connected and the "
+                                        "simulator's 'Use Device HTTPS Requirements' is off."))
             if not S.watch_connected:
                 force = S.force_pacer
                 S.force_pacer = False

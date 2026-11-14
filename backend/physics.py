@@ -98,6 +98,7 @@ def step(ps: PhysicsState, now: float, speaking: bool, stress: float,
                 pacer = True
     if force_pacer:
         ps.gate, pacer = "LISTENING", True
+        ps.still_since = now
 
     # --- Cardio / autonomic envelope.
     hr_target = BASELINE_HR + 28 * stress + (7 if speaking else 0) + (6 if ps.phase == "PRIMER" else 0)
@@ -135,4 +136,8 @@ def step(ps: PhysicsState, now: float, speaking: bool, stress: float,
         "lon": round(ps.lon, 6),
         "distance_m": round(dist, 1),
         "pacer_fired": pacer,
+        "pacer_forced": bool(force_pacer),
+        "baseline_hr": BASELINE_HR,
+        "peak_hr": round(ps.hr_peak_answer, 1),
+        "still_ms": 0 if ps.still_since is None else int((now - ps.still_since) * 1000),
     }

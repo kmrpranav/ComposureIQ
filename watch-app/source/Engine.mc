@@ -65,6 +65,7 @@ class Engine {
     hidden var _stillSince = null;
     hidden var _peakHr as Float = 0.0;
     var pacerFired as Boolean = false;
+    var pacerForced as Boolean = false;
     var pacerCount as Number = 0;
     var lastPacerMs as Number = -100000;
     var primerStart as Number = 0;
@@ -293,6 +294,7 @@ class Engine {
     }
 
     function forcePacer() as Void {
+        pacerForced = true;
         gate = "LISTENING";
         _stillSince = System.getTimer();
         firePacer();
@@ -365,6 +367,12 @@ class Engine {
         _session = null;
     }
 
+    hidden function stillMs(nowMs as Number) as Number {
+        var ss = _stillSince;
+        if (ss == null) { return 0; }
+        return nowMs - (ss as Number);
+    }
+
     // ------------------------------------------------------------ 1 Hz FastAPI sync
     hidden function sync() as Void {
         var nowMs = System.getTimer();
@@ -383,6 +391,10 @@ class Engine {
             "fidget_index" => fidget,
             "composure_index" => composure,
             "pacer_fired" => pacerFired,  // latched until sent
+            "pacer_forced" => pacerForced,
+            "baseline_hr" => baselineHr,
+            "peak_hr" => _peakHr,
+            "still_ms" => stillMs(nowMs),
             "hr" => hr,
             "temp" => temp
         };
@@ -401,6 +413,7 @@ class Engine {
             :responseType => Communications.HTTP_RESPONSE_CONTENT_TYPE_JSON
         }, method(:onResponse));
         pacerFired = false;
+        pacerForced = false;
     }
 
     function onResponse(code as Number, data as Dictionary or String or Null) as Void {

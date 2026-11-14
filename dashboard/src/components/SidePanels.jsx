@@ -1,49 +1,12 @@
 import { useEffect, useRef } from 'react'
 import { fmtT } from '../hooks'
-import { C, last } from '../sensors'
-import InfoTip from './InfoTip'
-
-export function Gauges({ telemetry }) {
-  const comp = last(telemetry, 'composure_index')
-  const fid = last(telemetry, 'fidget_index')
-  const pct = Math.max(0, Math.min(100, comp ?? 0))
-  const r = 36, Cc = 2 * Math.PI * r
-  return (
-    <div className="panel flex items-center gap-4 p-3">
-      <svg width="92" height="92" viewBox="0 0 92 92" className="shrink-0">
-        <circle cx="46" cy="46" r={r} stroke={C.grid} strokeWidth="6" fill="none" />
-        <circle cx="46" cy="46" r={r} stroke={pct < 45 ? C.alert : C.accent} strokeWidth="6" fill="none"
-          strokeLinecap="round" strokeDasharray={Cc} strokeDashoffset={Cc * (1 - pct / 100)}
-          transform="rotate(-90 46 46)" style={{ transition: 'stroke-dashoffset .6s, stroke .6s' }} />
-        <text x="46" y="52" textAnchor="middle" fill={C.ink} fontFamily="IBM Plex Mono" fontSize="22" fontWeight="500">
-          {comp == null ? '—' : Math.round(comp)}
-        </text>
-      </svg>
-      <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-1.5">
-          <span className="label">Composure index</span>
-          <InfoTip k="composure_index" />
-        </div>
-        <div className="mt-0.5 text-[11px] text-muted">Saved to the watch's .FIT file</div>
-        <div className="mt-3 flex items-center gap-1.5">
-          <span className="label">Fidget index</span>
-          <InfoTip k="fidget_index" />
-        </div>
-        <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-grid" style={{ background: C.grid }}>
-          <div className="h-full rounded-full bg-accent transition-all duration-500" style={{ width: `${fid ?? 0}%` }} />
-        </div>
-        <div className="mt-1 font-mono text-[10px] text-faint">{fid == null ? '—' : fid.toFixed(0)} / 100</div>
-      </div>
-    </div>
-  )
-}
 
 export function Transcript({ transcript, interim, callouts, onJump }) {
   const ref = useRef(null)
   useEffect(() => { ref.current?.scrollTo({ top: ref.current.scrollHeight, behavior: 'smooth' }) }, [transcript.length, interim])
   const flagged = new Set(callouts.map((c) => c.question_id))
   return (
-    <div className="panel flex min-h-0 flex-col p-3">
+    <div className="panel flex min-h-0 flex-1 flex-col p-3">
       <div className="mb-2 flex items-center justify-between">
         <div className="text-[13px] font-semibold text-ink">Transcript</div>
         <div className="font-mono text-[10px] text-faint">live</div>
@@ -74,7 +37,7 @@ export function Transcript({ transcript, interim, callouts, onJump }) {
 
 export function Callouts({ callouts, onJump }) {
   return (
-    <div className="panel flex min-h-0 flex-col p-3">
+    <div className="panel flex min-h-0 flex-1 flex-col p-3">
       <div className="mb-2 flex items-center justify-between">
         <div className="text-[13px] font-semibold text-ink">Stress moments</div>
         <div className="font-mono text-[10px] text-faint">{callouts.length} flagged</div>

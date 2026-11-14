@@ -4,13 +4,13 @@
     {
       "name": "backend",
       "runtimeExecutable": "sh",
-      "runtimeArgs": ["-c", "cd backend && .venv/bin/python -m uvicorn main:app --host 127.0.0.1 --port 8000"],
+      "runtimeArgs": ["-c", "cd backend && exec .venv/bin/python -m uvicorn main:app --host 127.0.0.1 --port 8000"],
       "port": 8000
     },
     {
       "name": "dashboard",
       "runtimeExecutable": "sh",
-      "runtimeArgs": ["-c", "cd dashboard && npx vite --port 5173 --strictPort"],
+      "runtimeArgs": ["-c", "cd dashboard && exec npx vite --port 5173 --strictPort"],
       "port": 5173
     }
   ]

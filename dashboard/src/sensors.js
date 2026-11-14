@@ -62,16 +62,16 @@ export const INFO = {
     good: 'Primer starts below 100 m',
   },
   fidget_index: {
-    title: 'Fidget Index',
-    what: 'A 0–100 score combining fast jittery wrist movement and gyroscope jerk.',
-    why: 'Shows nervous energy separately from normal talking gestures. Saved to the watch\'s .FIT file.',
-    good: 'Calm: under ~30',
+    title: 'Fidget Index · 0–100, lower is better',
+    what: 'How much nervous, jittery movement your wrist is making: quick twitches, flicks and fiddling. Smooth talking gestures barely count.',
+    why: 'Built from high-frequency accelerometer jitter plus sudden gyroscope jerks. Saved every second to the watch\'s .FIT file.',
+    good: 'Green under 25 · amber 25–55 · red above 55',
   },
   composure_index: {
-    title: 'Composure Index',
-    what: 'A 0–100 score combining heart rate above baseline, fidgeting, oxygen dips and HRV.',
-    why: 'One number for how composed you are right now. Saved every second to the watch\'s .FIT file.',
-    good: 'Composed: 70 and above',
+    title: 'Composure Index · 0–100, higher is better',
+    what: 'One number for how calm your body is right now.',
+    why: 'Starts at 100, then loses points for heart rate above your baseline, fidgeting and oxygen dips, and gains points for high HRV. Saved every second to the watch\'s .FIT file.',
+    good: 'Green 70+ · amber 45–70 · red under 45',
   },
 }
 
@@ -104,3 +104,49 @@ export function speakingSegments(rows) {
   if (start != null && rows.length) out.push({ x1: start, x2: rows[rows.length - 1].t })
   return out
 }
+
+// ---------------------------------------------------------------- red → green index
+const clamp01 = (v) => Math.max(0, Math.min(1, v))
+/** 0 = worst (red) … 1 = best (green), for value `v` between `bad` and `good`. */
+const between = (v, bad, good) => clamp01((v - bad) / (good - bad))
+
+/** Calm score 0..1 for a reading (1 = calm/good), or null when there is no value. */
+export function score(key, rows) {
+  const v = last(rows, key)
+  if (v == null) return null
+  switch (key) {
+    case 'hr': {
+      const base = last(rows, 'baseline_hr') ?? 72
+      return between(v - base, 25, 5)          // +5 bpm green → +25 bpm red
+    }
+    case 'rmssd': return between(v, 20, 55)
+    case 'spo2': return between(v, 94, 97.5)
+    case 'temp': return between(v, 31, 33.5)
+    case 'accel_var': return between(v, 7500, 2500)
+    case 'gyro_mag': return between(v, 160, 40)
+    case 'heading': {
+      const hs = rows.slice(-15).map((r) => r.heading).filter((h) => h != null)
+      if (hs.length < 3) return null
+      const m = hs.reduce((a, b) => a + b, 0) / hs.length
+      const sd = Math.sqrt(hs.reduce((a, b) => a + (b - m) ** 2, 0) / hs.length)
+      return between(sd, 15, 2)                // steady heading = settled posture
+    }
+    case 'distance_m': return between(v, 1000, 100)
+    case 'composure_index': return between(v, 40, 80)
+    case 'fidget_index': return between(v, 65, 20)
+    default: return null
+  }
+}
+
+const STOPS = [[176, 74, 63], [192, 138, 46], [63, 138, 90]] // red, amber, green (muted)
+/** Colour for a 0..1 score on the red → amber → green index. */
+export function scoreColor(sc) {
+  if (sc == null) return C.faint
+  const t = clamp01(sc) * 2
+  const [a, b] = t <= 1 ? [STOPS[0], STOPS[1]] : [STOPS[1], STOPS[2]]
+  const f = t <= 1 ? t : t - 1
+  const c = a.map((x, i) => Math.round(x + (b[i] - x) * f))
+  return `rgb(${c.join(',')})`
+}
+export const scoreWord = (sc) => (sc == null ? '—' : sc >= 0.66 ? 'calm' : sc >= 0.33 ? 'elevated' : 'high')
+export const SCALE_GRADIENT = 'linear-gradient(90deg, rgb(176,74,63), rgb(192,138,46), rgb(63,138,90))'
